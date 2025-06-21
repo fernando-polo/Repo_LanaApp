@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from DB.conexion import Base, engine, Session
+from models.modelsDB import *
 
 app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
 
 # Configurar CORS para permitir conexiones desde React Native
 app.add_middleware(
