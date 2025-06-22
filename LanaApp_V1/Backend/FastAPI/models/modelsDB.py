@@ -1,7 +1,7 @@
-# models/modelsDB.py
 from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, Text
 from sqlalchemy import Enum, Numeric, JSON
 from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
 from DB.conexion import Base
 
 class Usuario(Base):
@@ -14,8 +14,11 @@ class Usuario(Base):
     telefono = Column(String(20))
     reset_token = Column(String(255))
     reset_token_expiry = Column(DateTime)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, 
+                      default=lambda: datetime.now(timezone.utc),
+                      onupdate=lambda: datetime.now(timezone.utc),
+                      nullable=False)
     
     # Relaciones
     cuentas = relationship("Cuenta", back_populates="usuario")
@@ -34,7 +37,7 @@ class AuthToken(Base):
     usuario_id = Column(Integer, ForeignKey("usuarios.id"))
     token = Column(String(512))
     expires_at = Column(DateTime)
-    created_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     
     usuario = relationship("Usuario", back_populates="auth_tokens")
 
@@ -47,8 +50,11 @@ class Cuenta(Base):
     nombre = Column(String(100))
     tipo = Column(Enum("banco", "tarjeta", "efectivo", "otro", name="tipo_cuenta"))
     saldo_inicial = Column(Numeric(12, 2), default=0.00)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, 
+                      default=lambda: datetime.now(timezone.utc),
+                      onupdate=lambda: datetime.now(timezone.utc),
+                      nullable=False)
     
     usuario = relationship("Usuario", back_populates="cuentas")
     transacciones = relationship("Transaccion", back_populates="cuenta")
@@ -61,7 +67,7 @@ class Categoria(Base):
     id = Column(Integer, primary_key=True, autoincrement="auto")
     nombre = Column(String(50))
     tipo = Column(Enum("ingreso", "gasto", name="tipo_categoria"))
-    created_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     
     transacciones = relationship("Transaccion", back_populates="categoria")
     presupuestos = relationship("Presupuesto", back_populates="categoria")
@@ -78,8 +84,11 @@ class Transaccion(Base):
     monto = Column(Numeric(12, 2))
     fecha = Column(Date)
     descripcion = Column(Text)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, 
+                      default=lambda: datetime.now(timezone.utc),
+                      onupdate=lambda: datetime.now(timezone.utc),
+                      nullable=False)
     
     usuario = relationship("Usuario", back_populates="transacciones")
     cuenta = relationship("Cuenta", back_populates="transacciones")
@@ -97,8 +106,11 @@ class Presupuesto(Base):
     limite = Column(Numeric(12, 2))
     alerta_80 = Column(Boolean, default=True)
     alerta_100 = Column(Boolean, default=True)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, 
+                      default=lambda: datetime.now(timezone.utc),
+                      onupdate=lambda: datetime.now(timezone.utc),
+                      nullable=False)
     
     usuario = relationship("Usuario", back_populates="presupuestos")
     categoria = relationship("Categoria", back_populates="presupuestos")
@@ -117,8 +129,11 @@ class PagoProgramado(Base):
     proxima_fecha = Column(Date)
     activo = Column(Boolean, default=True)
     notificar_antes = Column(Integer, default=2)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, 
+                      default=lambda: datetime.now(timezone.utc),
+                      onupdate=lambda: datetime.now(timezone.utc),
+                      nullable=False)
     
     usuario = relationship("Usuario", back_populates="pagos_programados")
     cuenta = relationship("Cuenta", back_populates="pagos_programados")
@@ -132,8 +147,11 @@ class PreferenciaNotificacion(Base):
     por_email = Column(Boolean, default=True)
     por_sms = Column(Boolean, default=False)
     por_push = Column(Boolean, default=True)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, 
+                      default=lambda: datetime.now(timezone.utc),
+                      onupdate=lambda: datetime.now(timezone.utc),
+                      nullable=False)
     
     usuario = relationship("Usuario", back_populates="preferencias_notificacion")
 
@@ -147,9 +165,9 @@ class Notificacion(Base):
     medio = Column(Enum("email", "sms", "push", name="medio_notificacion"))
     mensaje = Column(Text)
     programada_para = Column(DateTime)
-    enviada_en = Column(DateTime)
+    enviada_en = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     estado = Column(Enum("pendiente", "enviada", "fallida", "leida", name="estado_notificacion"), default="pendiente")
-    datos_extra = Column(JSON)  # Cambiado de 'metadata' a 'datos_extra'
-    created_at = Column(DateTime)
+    datos_extra = Column(JSON)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     
     usuario = relationship("Usuario", back_populates="notificaciones")

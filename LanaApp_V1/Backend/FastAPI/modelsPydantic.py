@@ -89,6 +89,7 @@ class NotificacionBase(BaseModel):
     mensaje: Optional[str] = Field(None, description="Contenido de la notificación")
     programada_para: Optional[datetime] = Field(None, description="Fecha programada para enviar")
     estado: Optional[EstadoNotificacion] = Field("pendiente", description="Estado de la notificación")
+    datos_extra: Optional[dict] = Field(None, description="Metadatos adicionales")  
 
 # --------------------------
 # MODELOS DE CREACIÓN (Campos obligatorios)
@@ -176,7 +177,7 @@ class UsuarioResponse(UsuarioBase):
     updated_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class CuentaResponse(CuentaBase):
     id: int
@@ -185,14 +186,14 @@ class CuentaResponse(CuentaBase):
     updated_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class CategoriaResponse(CategoriaBase):
     id: int
     created_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class TransaccionResponse(TransaccionBase):
     id: int
@@ -205,7 +206,7 @@ class TransaccionResponse(TransaccionBase):
     categoria: Optional[CategoriaResponse]
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class PresupuestoResponse(PresupuestoBase):
     id: int
@@ -216,7 +217,7 @@ class PresupuestoResponse(PresupuestoBase):
     categoria: Optional[CategoriaResponse]
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class PagoProgramadoResponse(PagoProgramadoBase):
     id: int
@@ -229,16 +230,16 @@ class PagoProgramadoResponse(PagoProgramadoBase):
     categoria: Optional[CategoriaResponse]
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class NotificacionResponse(NotificacionBase):
     id: int
     usuario_id: int
     created_at: datetime
-    metadata: Optional[dict]
+    datos_extra: Optional[dict] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # --------------------------
 # MODELOS PARA AUTENTICACIÓN
@@ -264,3 +265,20 @@ class PasswordResetConfirm(BaseModel):
         if len(v) < 8:
             raise ValueError('La contraseña debe tener al menos 8 caracteres')
         return v
+    
+# Demás modelos para las gráficas
+class CategoriaResumen(BaseModel):
+    categoria: str
+    total: float
+    color: Optional[str] = None
+
+class HistoricoMensual(BaseModel):
+    mes: str
+    ingresos: float
+    gastos: float
+    balance: float
+
+class TopCategorias(BaseModel):
+    categoria: str
+    total: float
+    porcentaje: float
