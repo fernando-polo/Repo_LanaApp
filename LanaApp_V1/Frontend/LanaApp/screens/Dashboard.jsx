@@ -12,12 +12,14 @@ import {
 } from 'react-native';
 import Svg, { Path, Circle, G, Text as SvgText } from 'react-native-svg';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import TransactionMenu from './TransactionMenu';
 
 const { width } = Dimensions.get('window');
 
-const Dashboard = () => {
+const Dashboard = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState(0);
-  
+  const [showTransactionMenu, setShowTransactionMenu] = useState(false);
+
   // Referencias para animaciones
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -119,8 +121,8 @@ const Dashboard = () => {
         </Svg>
         <View style={styles.chartLabels}>
           {data.map((item, index) => (
-            <Animated.Text 
-              key={index} 
+            <Animated.Text
+              key={index}
               style={[
                 styles.chartLabel,
                 {
@@ -146,7 +148,7 @@ const Dashboard = () => {
 
     return (
       <View style={{ alignItems: 'center' }}>
-        <Animated.View 
+        <Animated.View
           style={{
             transform: [{ scale: scaleAnim }],
             opacity: fadeAnim,
@@ -211,17 +213,26 @@ const Dashboard = () => {
           useNativeDriver: true,
         }),
       ]).start();
-      onPress();
+
+      // Mostrar menú solo para el segundo ícono (stats-chart)
+      if (index === 1) {
+        setShowTransactionMenu(true);
+      } else if (index === 3) {
+        // Navegar a PerfilUsuario cuando se presiona el ícono de person (índice 3)
+        navigation.navigate('PerfilUsuario');
+      } else {
+        onPress();
+      }
     };
 
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[styles.tabButton, isActive && styles.activeTab]}
         onPress={handlePress}
         activeOpacity={0.7}
       >
         <Animated.View style={{ transform: [{ scale: tabScale }] }}>
-          <Ionicons 
+          <Ionicons
             name={iconName}
             size={24}
             color={isActive ? '#000' : '#999'}
@@ -234,7 +245,7 @@ const Dashboard = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
-      
+
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
@@ -246,11 +257,11 @@ const Dashboard = () => {
               </View>
             </View>
           </View>
-          
+
           <Text style={styles.greeting}>Hola, Fernando</Text>
-          
+
           {/* Saldo en cuenta */}
-          <Animated.View 
+          <Animated.View
             style={[
               styles.balanceCard,
               {
@@ -266,7 +277,7 @@ const Dashboard = () => {
             <Animated.Text style={styles.balanceAmount}>
               ${Math.floor(balanceCountAnim._value).toLocaleString()}
             </Animated.Text>
-            <Animated.View 
+            <Animated.View
               style={[
                 styles.trendContainer,
                 { opacity: fadeAnim }
@@ -277,7 +288,7 @@ const Dashboard = () => {
           </Animated.View>
 
           {/* Ingresos y Gastos */}
-          <Animated.View 
+          <Animated.View
             style={[
               styles.statsContainer,
               {
@@ -286,7 +297,7 @@ const Dashboard = () => {
               }
             ]}
           >
-            <Animated.View 
+            <Animated.View
               style={[
                 styles.statCard,
                 { transform: [{ scale: scaleAnim }] }
@@ -298,8 +309,8 @@ const Dashboard = () => {
                 <Text style={styles.trendTextRed}>-8% al mes pasado</Text>
               </View>
             </Animated.View>
-            
-            <Animated.View 
+
+            <Animated.View
               style={[
                 styles.statCard,
                 { transform: [{ scale: scaleAnim }] }
@@ -315,7 +326,7 @@ const Dashboard = () => {
         </View>
 
         {/* Gráfica de gastos */}
-        <Animated.View 
+        <Animated.View
           style={[
             styles.chartContainer,
             {
@@ -336,7 +347,7 @@ const Dashboard = () => {
         </Animated.View>
 
         {/* Gráfica por categorías */}
-        <Animated.View 
+        <Animated.View
           style={[
             styles.chartContainer,
             {
@@ -348,21 +359,21 @@ const Dashboard = () => {
           <Text style={styles.chartTitle}>Gastos por categoría</Text>
           <View style={styles.donutContainer}>
             <DonutChart data={categoryData} />
-            <Animated.View 
+            <Animated.View
               style={[
                 styles.legend,
                 { opacity: fadeAnim }
               ]}
             >
               {categoryData.map((item, index) => (
-                <Animated.View 
-                  key={index} 
+                <Animated.View
+                  key={index}
                   style={[
                     styles.legendItem,
                     {
                       opacity: fadeAnim,
                       transform: [
-                        { 
+                        {
                           translateX: slideAnim.interpolate({
                             inputRange: [0, 50],
                             outputRange: [0, 20],
@@ -382,7 +393,7 @@ const Dashboard = () => {
         </Animated.View>
 
         {/* Alertas importantes */}
-        <Animated.View 
+        <Animated.View
           style={[
             styles.alertsContainer,
             {
@@ -395,11 +406,11 @@ const Dashboard = () => {
             <Text style={styles.alertsTitle}>ALERTA IMPORTANTE</Text>
             <Text style={styles.alertsArrow}>›</Text>
           </View>
-          
+
           <View style={styles.alertsGrid}>
-            <Animated.View 
+            <Animated.View
               style={[
-                styles.alertCard, 
+                styles.alertCard,
                 styles.rentAlert,
                 { transform: [{ scale: scaleAnim }] }
               ]}
@@ -409,10 +420,10 @@ const Dashboard = () => {
               <Text style={styles.alertTitle}>RENTA</Text>
               <Text style={styles.alertAmount}>$4,500</Text>
             </Animated.View>
-            
-            <Animated.View 
+
+            <Animated.View
               style={[
-                styles.alertCard, 
+                styles.alertCard,
                 styles.budgetAlert,
                 { transform: [{ scale: scaleAnim }] }
               ]}
@@ -428,31 +439,38 @@ const Dashboard = () => {
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
-        <TabButton 
+        <TabButton
           iconName="home"
-          isActive={activeTab === 0} 
+          isActive={activeTab === 0}
           onPress={() => setActiveTab(0)}
           index={0}
         />
-        <TabButton 
+        <TabButton
           iconName="stats-chart"
-          isActive={activeTab === 1} 
+          isActive={activeTab === 1}
           onPress={() => setActiveTab(1)}
           index={1}
         />
-        <TabButton 
+        <TabButton
           iconName="notifications"
-          isActive={activeTab === 2} 
+          isActive={activeTab === 2}
           onPress={() => setActiveTab(2)}
           index={2}
         />
-        <TabButton 
+        <TabButton
           iconName="person"
-          isActive={activeTab === 3} 
+          isActive={activeTab === 3}
           onPress={() => setActiveTab(3)}
           index={3}
         />
       </View>
+
+      {/* Menú de Transacciones */}
+      <TransactionMenu
+        visible={showTransactionMenu}
+        onClose={() => setShowTransactionMenu(false)}
+        navigation={navigation}
+      />
     </SafeAreaView>
   );
 };
