@@ -1,0 +1,62 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archivos de compilación
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# Archivos de entorno virtual
+venv/
+ENV/
+env/
+.venv/
+APIenv/
+*/APIenv/
+*/env/
+*/venv/
+
+# Archivos de configuración locales
+*.env
+.env.*
+.envrc
+
+# Archivos de logs
+*.log
+logs/
+
+# Archivos temporales de test
+.coverage
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+
+# Cachés de herramientas
+.mypy_cache/
+.pyre/
+.pytype/
+.dmypy.json
+.pyright/
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos temporales del sistema
+.DS_Store
+Thumbs.db
+
+# Carpeta de build / dist
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Archivos generados por Uvicorn / FastAPI
+*.pid
