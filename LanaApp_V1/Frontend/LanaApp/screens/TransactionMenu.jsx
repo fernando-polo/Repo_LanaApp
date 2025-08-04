@@ -54,17 +54,6 @@ const TransactionMenu = ({ visible, onClose, navigation }) => {
             style={styles.menuItem}
             onPress={() => {
               onClose();
-              navigation.navigate('DetalleTransaccion');
-            }}
-          >
-            <Ionicons name="document-text" size={24} color="#000" />
-            <Text style={styles.menuItemText}>Detalle de Transacción</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.menuItem}
-            onPress={() => {
-              onClose();
               navigation.navigate('HistorialTransacciones');
             }}
           >

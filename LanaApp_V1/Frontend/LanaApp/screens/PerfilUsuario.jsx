@@ -22,7 +22,6 @@ const PerfilUsuario = ({ navigation }) => {
   const [notificationsApp, setNotificationsApp] = useState(true);
   const [notificationsEmail, setNotificationsEmail] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -48,9 +47,6 @@ const PerfilUsuario = ({ navigation }) => {
       setNombre(user.nombre || '');
       setCorreo(user.email || '');
       setTelefono(user.telefono || '');
-      
-      // Las notificaciones vendrían de preferencias si existieran en la API
-      // Por ahora dejamos los valores por defecto
     } catch (error) {
       console.error('Error cargando datos del usuario:', error);
       Alert.alert('Error', 'No se pudieron cargar los datos del usuario');
@@ -131,59 +127,25 @@ const PerfilUsuario = ({ navigation }) => {
     }
   };
 
-  const cerrarSesion = () => {
-    console.log('Iniciando proceso de cierre de sesión...');
-    
-    Alert.alert(
-      'Cerrar sesión',
-      '¿Estás seguro de que deseas cerrar sesión?',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-          onPress: () => console.log('Cierre de sesión cancelado')
-        },
-        {
-          text: 'Sí, cerrar sesión',
-          style: 'destructive',
-          onPress: async () => {
-            console.log('Usuario confirmó cerrar sesión');
-            setLoading(true);
-            
-            try {
-              await authService.logout();
-              console.log('Logout exitoso');
-              
-              // Pequeña pausa para mostrar el loading
-              setTimeout(() => {
-                setLoading(false);
-                // Resetear la navegación y volver al Login
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'Login' }],
-                });
-              }, 500);
-              
-            } catch (error) {
-              console.error('Error al cerrar sesión:', error);
-              setLoading(false);
-              Alert.alert('Error', 'No se pudo cerrar sesión correctamente');
-            }
-          }
-        }
-      ],
-      { cancelable: true }
-    );
+  const cerrarSesion = async () => {
+    try {
+      // Limpiar el storage
+      await authService.logout();
+      
+      // Navegar al Login
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (error) {
+      console.error('Error durante logout:', error);
+      // Aún si hay error, navegar al login
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    }
   };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#000" />
-        <Text style={styles.loadingText}>Cerrando sesión...</Text>
-      </View>
-    );
-  }
 
   if (loadingProfile) {
     return (
@@ -253,6 +215,55 @@ const PerfilUsuario = ({ navigation }) => {
               thumbColor="#fff"
             />
           </View>
+        </View>
+
+        {/* Sección de Gestión */}
+        <View style={styles.managementSection}>
+          <Text style={styles.sectionTitle}>Administración</Text>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('GestionCuentas')}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="wallet" size={24} color="#333" />
+              <Text style={styles.menuItemText}>Gestión de cuentas</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('GestionCategorias')}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="pricetags" size={24} color="#333" />
+              <Text style={styles.menuItemText}>Gestión de categorías</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('GestionPresupuestos')}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="pie-chart" size={24} color="#333" />
+              <Text style={styles.menuItemText}>Presupuestos</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => Alert.alert('Información', 'Pagos programados próximamente')}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="calendar" size={24} color="#333" />
+              <Text style={styles.menuItemText}>Pagos programados</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
         </View>
 
         {/* Botones de acción */}
@@ -517,6 +528,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+  managementSection: {
+    paddingVertical: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  menuItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  menuItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
   actionButton: {
     backgroundColor: '#f8f9fa',
     padding: 16,
@@ -533,6 +566,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fee2e2',
+    marginBottom: 50,
   },
   logoutButtonText: {
     color: '#dc2626',

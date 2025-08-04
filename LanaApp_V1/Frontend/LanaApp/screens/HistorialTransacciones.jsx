@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -7,39 +7,225 @@ import {
   SafeAreaView, 
   StatusBar, 
   ScrollView,
-  TextInput
+  TextInput,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { transactionService } from '../utils/transactionService';
+import { categoryService } from '../utils/categoryService';
 
 const HistorialTransacciones = ({ navigation }) => {
-  const transactions = [
-    { id: 1, name: 'sara BBVA', time: '1d', amount: '425.00', status: 'exitosa', type: 'transferencia' },
-    { id: 2, name: 'Señor de la renta', time: '1d', amount: '3200.00', status: 'transito', type: 'pago' },
-    { id: 3, name: 'daniela BBVA', time: '2d', amount: '500.00', status: 'exitosa', type: 'transferencia' },
-    { id: 4, name: 'elena BANAMEX', time: '3d', amount: '320.00', status: 'exitosa', type: 'transferencia' },
-    { id: 5, name: 'fernando OXXO', time: '4d', amount: '65.00', status: 'exitosa', type: 'retiro' },
-    { id: 6, name: 'señor de la renta', time: '5d', amount: '800.00', status: 'exitosa', type: 'pago' },
-    { id: 7, name: 'elena BANAMEX', time: '5d', amount: '45.00', status: 'rechazada', type: 'transferencia' },
-  ];
+  const [transactions, setTransactions] = useState([]);
+  const [filteredTransactions, setFilteredTransactions] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('todas');
 
-  const getTransactionIcon = (type) => {
-    switch(type) {
-      case 'transferencia':
-        return <Ionicons name="swap-horizontal" size={20} color="#3B82F6" />;
-      case 'pago':
-        return <Ionicons name="card" size={20} color="#10B981" />;
-      case 'retiro':
-        return <Ionicons name="cash" size={20} color="#F59E0B" />;
-      default:
-        return <Ionicons name="receipt" size={20} color="#6366F1" />;
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    filterTransactions();
+  }, [transactions, searchText, selectedFilter]);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      
+      // Cargar transacciones
+      const transactionsData = await transactionService.getTransactions({
+        limit: 100,
+        skip: 0
+      });
+      
+      // Ordenar por fecha más reciente
+      const sortedTransactions = transactionsData.sort((a, b) => 
+        new Date(b.fecha) - new Date(a.fecha)
+      );
+      
+      setTransactions(sortedTransactions);
+      
+      // Cargar categorías para los filtros
+      const categoriesData = await categoryService.getCategories();
+      setCategories(categoriesData);
+      
+    } catch (error) {
+      console.error('Error cargando transacciones:', error);
+      Alert.alert('Error', 'No se pudieron cargar las transacciones');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
+
+  const filterTransactions = () => {
+    let filtered = [...transactions];
+    
+    // Filtrar por texto de búsqueda
+    if (searchText) {
+      filtered = filtered.filter(t => 
+        t.descripcion?.toLowerCase().includes(searchText.toLowerCase()) ||
+        t.categoria?.nombre?.toLowerCase().includes(searchText.toLowerCase()) ||
+        t.monto?.toString().includes(searchText)
+      );
+    }
+    
+    // Filtrar por tipo
+    if (selectedFilter !== 'todas') {
+      filtered = filtered.filter(t => {
+        if (selectedFilter === 'ingresos') {
+          return t.categoria?.tipo === 'ingreso';
+        } else if (selectedFilter === 'gastos') {
+          return t.categoria?.tipo === 'gasto';
+        }
+        return true;
+      });
+    }
+    
+    setFilteredTransactions(filtered);
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
+  };
+
+  const getTransactionIcon = (categoria) => {
+    const tipo = categoria?.tipo;
+    const nombre = categoria?.nombre?.toLowerCase();
+    
+    // Iconos personalizados según la categoría
+    if (nombre?.includes('comida') || nombre?.includes('alimento')) {
+      return <Ionicons name="restaurant" size={20} color="#F59E0B" />;
+    } else if (nombre?.includes('transporte')) {
+      return <Ionicons name="car" size={20} color="#3B82F6" />;
+    } else if (nombre?.includes('salud')) {
+      return <Ionicons name="medical" size={20} color="#EF4444" />;
+    } else if (nombre?.includes('educación')) {
+      return <Ionicons name="school" size={20} color="#8B5CF6" />;
+    } else if (nombre?.includes('entretenimiento')) {
+      return <Ionicons name="game-controller" size={20} color="#EC4899" />;
+    } else if (tipo === 'ingreso') {
+      return <Ionicons name="arrow-down-circle" size={20} color="#10B981" />;
+    } else {
+      return <Ionicons name="arrow-up-circle" size={20} color="#EF4444" />;
+    }
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Hoy';
+    if (diffDays === 1) return 'Ayer';
+    if (diffDays < 7) return `${diffDays}d`;
+    
+    return date.toLocaleDateString('es-MX', { 
+      day: 'numeric', 
+      month: 'short' 
+    });
+  };
+
+  const deleteTransaction = async (transactionId) => {
+    Alert.alert(
+      'Eliminar transacción',
+      '¿Estás seguro de que deseas eliminar esta transacción?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await transactionService.deleteTransaction(transactionId);
+              Alert.alert('Éxito', 'Transacción eliminada correctamente');
+              loadData(); // Recargar lista
+            } catch (error) {
+              console.error('Error eliminando transacción:', error);
+              Alert.alert('Error', 'No se pudo eliminar la transacción');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const renderTransaction = ({ item }) => {
+    const isIngreso = item.categoria?.tipo === 'ingreso';
+    
+    return (
+      <TouchableOpacity 
+        style={styles.transactionCard}
+        onPress={() => navigation.navigate('DetalleTransaccion', { 
+          transaction: item,
+          onDelete: () => loadData() // Callback para recargar después de eliminar
+        })}
+        onLongPress={() => deleteTransaction(item.id)}
+      >
+        <View style={styles.transactionIcon}>
+          {getTransactionIcon(item.categoria)}
+        </View>
+        
+        <View style={styles.transactionInfo}>
+          <Text style={styles.transactionName}>
+            {item.descripcion || item.categoria?.nombre || 'Sin descripción'}
+          </Text>
+          <Text style={styles.transactionTime}>
+            {formatDate(item.fecha)} • {item.cuenta?.nombre || 'Cuenta principal'}
+          </Text>
+        </View>
+        
+        <View style={styles.transactionAmountContainer}>
+          <Text 
+            style={[
+              styles.transactionAmount,
+              isIngreso ? styles.amountPositive : styles.amountNegative
+            ]}
+          >
+            {isIngreso ? '+' : '-'}${item.monto.toLocaleString('es-MX', { 
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2 
+            })}
+          </Text>
+          <Text style={[styles.transactionStatus, styles.statusCompleted]}>
+            {item.categoria?.nombre || 'General'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Historial de Transacciones</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+          <Text style={styles.loadingText}>Cargando transacciones...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       
-      {/* Header mejorado */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#000" />
@@ -48,14 +234,21 @@ const HistorialTransacciones = ({ navigation }) => {
         <View style={{ width: 24 }} />
       </View>
       
-      {/* Barra de búsqueda mejorada */}
+      {/* Barra de búsqueda */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
           placeholder="Buscar transacción..."
           placeholderTextColor="#999"
+          value={searchText}
+          onChangeText={setSearchText}
         />
+        {searchText.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchText('')}>
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
       </View>
       
       {/* Filtros rápidos */}
@@ -64,61 +257,55 @@ const HistorialTransacciones = ({ navigation }) => {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filterContainer}
       >
-        <TouchableOpacity style={[styles.filterButton, styles.activeFilter]}>
-          <Text style={[styles.filterText, styles.activeFilterText]}>Todas</Text>
+        <TouchableOpacity 
+          style={[styles.filterButton, selectedFilter === 'todas' && styles.activeFilter]}
+          onPress={() => setSelectedFilter('todas')}
+        >
+          <Text style={[styles.filterText, selectedFilter === 'todas' && styles.activeFilterText]}>
+            Todas
+          </Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.filterButton}>
-          <Text style={styles.filterText}>Transferencias</Text>
+        <TouchableOpacity 
+          style={[styles.filterButton, selectedFilter === 'ingresos' && styles.activeFilter]}
+          onPress={() => setSelectedFilter('ingresos')}
+        >
+          <Text style={[styles.filterText, selectedFilter === 'ingresos' && styles.activeFilterText]}>
+            Ingresos
+          </Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.filterButton}>
-          <Text style={styles.filterText}>Pagos</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.filterButton}>
-          <Text style={styles.filterText}>Retiros</Text>
+        <TouchableOpacity 
+          style={[styles.filterButton, selectedFilter === 'gastos' && styles.activeFilter]}
+          onPress={() => setSelectedFilter('gastos')}
+        >
+          <Text style={[styles.filterText, selectedFilter === 'gastos' && styles.activeFilterText]}>
+            Gastos
+          </Text>
         </TouchableOpacity>
       </ScrollView>
       
       {/* Lista de transacciones */}
-      <ScrollView style={styles.transactionsList}>
-        {transactions.map((transaction) => (
-          <TouchableOpacity 
-            key={transaction.id} 
-            style={styles.transactionCard}
-            onPress={() => navigation.navigate('DetalleTransaccion', { transaction })}
-          >
-            <View style={styles.transactionIcon}>
-              {getTransactionIcon(transaction.type)}
-            </View>
-            
-            <View style={styles.transactionInfo}>
-              <Text style={styles.transactionName}>{transaction.name}</Text>
-              <Text style={styles.transactionTime}>{transaction.time} • {transaction.type}</Text>
-            </View>
-            
-            <View style={styles.transactionAmountContainer}>
-              <Text 
-                style={[
-                  styles.transactionAmount,
-                  transaction.status === 'rechazada' && styles.amountRejected,
-                  transaction.status === 'transito' && styles.amountPending
-                ]}
-              >
-                {transaction.status === 'rechazada' ? '-' : ''}${transaction.amount}
-              </Text>
-              <Text 
-                style={[
-                  styles.transactionStatus,
-                  transaction.status === 'rechazada' && styles.statusRejected,
-                  transaction.status === 'transito' && styles.statusPending
-                ]}
-              >
-                {transaction.status === 'exitosa' ? 'Completada' : 
-                transaction.status === 'transito' ? 'En proceso' : 'Rechazada'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <FlatList
+        data={filteredTransactions}
+        renderItem={renderTransaction}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={styles.transactionsList}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#000']}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="receipt-outline" size={64} color="#ccc" />
+            <Text style={styles.emptyText}>No hay transacciones</Text>
+            <Text style={styles.emptySubtext}>
+              {searchText ? 'No se encontraron resultados' : 'Agrega tu primera transacción'}
+            </Text>
+          </View>
+        }
+      />
       
       {/* Botón flotante para nueva transacción */}
       <TouchableOpacity 
@@ -135,6 +322,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
   },
   header: {
     flexDirection: 'row',
@@ -195,8 +392,8 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   transactionsList: {
-    flex: 1,
     paddingHorizontal: 16,
+    paddingBottom: 100,
   },
   transactionCard: {
     flexDirection: 'row',
@@ -239,30 +436,40 @@ const styles = StyleSheet.create({
   transactionAmount: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#10B981',
     marginBottom: 4,
   },
-  amountPending: {
-    color: '#F59E0B',
+  amountPositive: {
+    color: '#10B981',
   },
-  amountRejected: {
+  amountNegative: {
     color: '#EF4444',
   },
   transactionStatus: {
     fontSize: 12,
-    color: '#10B981',
-    backgroundColor: '#ECFDF5',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
   },
-  statusPending: {
-    color: '#F59E0B',
-    backgroundColor: '#FEF3C7',
+  statusCompleted: {
+    color: '#666',
+    backgroundColor: '#F3F4F6',
   },
-  statusRejected: {
-    color: '#EF4444',
-    backgroundColor: '#FEE2E2',
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
   },
   floatingButton: {
     position: 'absolute',

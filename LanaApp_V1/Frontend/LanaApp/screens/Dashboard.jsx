@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Modal,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Path, Circle, G, Text as SvgText } from 'react-native-svg';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import TransactionMenu from './TransactionMenu';
@@ -27,25 +29,51 @@ const Dashboard = ({ navigation }) => {
   const [showTransactionMenu, setShowTransactionMenu] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAccountSelector, setShowAccountSelector] = useState(false);
   
   // Estados para datos reales
   const [userData, setUserData] = useState(null);
-  const [balance, setBalance] = useState(0);
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccount, setSelectedAccount] = useState(null);
+  const [accountBalances, setAccountBalances] = useState({});
   const [transactions, setTransactions] = useState([]);
   const [monthlyData, setMonthlyData] = useState(null);
   const [categoryData, setCategoryData] = useState([]);
-  const [accounts, setAccounts] = useState([]);
+  const [totalBalance, setTotalBalance] = useState(0);
 
   // Referencias para animaciones
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
-  const balanceCountAnim = useRef(new Animated.Value(0)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+
+  // Cargar datos cuando la pantalla recibe el foco
+  useFocusEffect(
+    useCallback(() => {
+      console.log('Dashboard recibió foco, recargando datos...');
+      loadDashboardData();
+    }, [])
+  );
 
   useEffect(() => {
-    loadDashboardData();
     startAnimations();
   }, []);
+
+  useEffect(() => {
+    // Cuando cambia la cuenta seleccionada, actualizar los datos mostrados
+    if (selectedAccount) {
+      loadAccountSpecificData(selectedAccount);
+    }
+  }, [selectedAccount]);
+
+  useEffect(() => {
+    // Animar el icono del dropdown
+    Animated.timing(rotateAnim, {
+      toValue: showAccountSelector ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [showAccountSelector]);
 
   const startAnimations = () => {
     Animated.parallel([
@@ -69,61 +97,40 @@ const Dashboard = ({ navigation }) => {
 
   const loadDashboardData = async () => {
     try {
-      setLoading(true);
+      console.log('Cargando datos del dashboard...');
       
       // Obtener datos del usuario
       const user = await userService.getCurrentUser();
       setUserData(user);
       
-      // Obtener cuentas
+      // Obtener cuentas (forzar recarga desde la API)
       const accountsData = await accountService.getAccounts();
+      console.log('Cuentas cargadas:', accountsData);
       setAccounts(accountsData);
       
-      // Calcular saldo total
-      const totalBalance = accountsData.reduce((sum, account) => sum + account.saldo_inicial, 0);
-      
-      // Obtener transacciones recientes
-      const transactionsData = await transactionService.getTransactions({ limit: 10 });
-      setTransactions(transactionsData);
-      
-      // Calcular saldo actual considerando transacciones
-      const transactionBalance = await calculateTransactionBalance(transactionsData);
-      const currentBalance = totalBalance + transactionBalance;
-      setBalance(currentBalance);
-      
-      // Animar el contador de balance
-      Animated.timing(balanceCountAnim, {
-        toValue: currentBalance,
-        duration: 1500,
-        useNativeDriver: false,
-      }).start();
-      
-      // Obtener datos del mes actual
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      
-      // Obtener resumen de categorías
-      const categoryReport = await transactionService.getCategoryReport(currentMonth, currentYear);
-      if (categoryReport) {
-        setMonthlyData(categoryReport.balance_total);
+      if (accountsData.length > 0) {
+        // Si hay una cuenta seleccionada, mantenerla si todavía existe
+        let accountToSelect = selectedAccount;
         
-        // Preparar datos para la gráfica de dona
-        const topCategories = await transactionService.getTopCategories('gasto', {
-          mes: currentMonth,
-          ano: currentYear,
-          limite: 4
-        });
+        // Verificar si la cuenta seleccionada todavía existe
+        if (selectedAccount) {
+          const stillExists = accountsData.find(acc => acc.id === selectedAccount.id);
+          if (stillExists) {
+            // Actualizar con los datos nuevos
+            accountToSelect = stillExists;
+          } else {
+            // Si no existe, seleccionar la primera
+            accountToSelect = accountsData[0];
+          }
+        } else {
+          // Si no hay cuenta seleccionada, seleccionar la primera
+          accountToSelect = accountsData[0];
+        }
         
-        const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'];
-        const formattedCategories = topCategories.map((cat, index) => ({
-          name: cat.categoria,
-          value: cat.total,
-          color: colors[index],
-          percentage: cat.porcentaje
-        }));
+        setSelectedAccount(accountToSelect);
         
-        setCategoryData(formattedCategories);
+        // Calcular saldos de todas las cuentas
+        await calculateAllAccountBalances(accountsData);
       }
       
     } catch (error) {
@@ -135,21 +142,137 @@ const Dashboard = ({ navigation }) => {
     }
   };
 
-  const calculateTransactionBalance = async (transactions) => {
-    let balance = 0;
-    for (const transaction of transactions) {
-      if (transaction.categoria?.tipo === 'ingreso') {
-        balance += transaction.monto;
-      } else {
-        balance -= transaction.monto;
+  const calculateAllAccountBalances = async (accountsList) => {
+    try {
+      // Obtener todas las transacciones
+      const allTransactions = await transactionService.getTransactions({ limit: 1000 });
+      
+      const balances = {};
+      let total = 0;
+      
+      // Calcular saldo para cada cuenta
+      for (const account of accountsList) {
+        // Saldo inicial de la cuenta (actualizado)
+        let accountBalance = account.saldo_inicial || 0;
+        console.log(`Cuenta ${account.nombre} - Saldo inicial: ${accountBalance}`);
+        
+        // Filtrar transacciones de esta cuenta
+        const accountTransactions = allTransactions.filter(t => t.cuenta_id === account.id);
+        
+        // Calcular el balance de transacciones
+        accountTransactions.forEach(transaction => {
+          if (transaction.categoria?.tipo === 'ingreso') {
+            accountBalance += parseFloat(transaction.monto) || 0;
+          } else if (transaction.categoria?.tipo === 'gasto') {
+            accountBalance -= parseFloat(transaction.monto) || 0;
+          }
+        });
+        
+        console.log(`Cuenta ${account.nombre} - Saldo final: ${accountBalance}`);
+        balances[account.id] = accountBalance;
+        total += accountBalance;
       }
+      
+      setAccountBalances(balances);
+      setTotalBalance(total);
+      
+      console.log('Saldos calculados:', balances);
+      console.log('Saldo total:', total);
+    } catch (error) {
+      console.error('Error calculando saldos:', error);
     }
-    return balance;
+  };
+
+  const loadAccountSpecificData = async (account) => {
+    try {
+      // Obtener transacciones de la cuenta seleccionada
+      const allTransactions = await transactionService.getTransactions({ limit: 100 });
+      const accountTransactions = allTransactions.filter(t => t.cuenta_id === account.id);
+      setTransactions(accountTransactions);
+      
+      // Obtener datos del mes actual para esta cuenta
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      
+      // Calcular ingresos y gastos del mes para esta cuenta
+      let monthIncome = 0;
+      let monthExpenses = 0;
+      
+      accountTransactions.forEach(transaction => {
+        const transactionDate = new Date(transaction.fecha);
+        if (transactionDate.getMonth() + 1 === currentMonth && 
+            transactionDate.getFullYear() === currentYear) {
+          if (transaction.categoria?.tipo === 'ingreso') {
+            monthIncome += parseFloat(transaction.monto) || 0;
+          } else if (transaction.categoria?.tipo === 'gasto') {
+            monthExpenses += parseFloat(transaction.monto) || 0;
+          }
+        }
+      });
+      
+      setMonthlyData({
+        total_ingresos: monthIncome,
+        total_gastos: monthExpenses,
+        diferencia: monthIncome - monthExpenses
+      });
+      
+      // Obtener categorías top para esta cuenta
+      const topCategories = await transactionService.getTopCategories('gasto', {
+        mes: currentMonth,
+        ano: currentYear,
+        limite: 4
+      });
+      
+      // Filtrar solo las categorías que tienen transacciones en esta cuenta
+      const accountCategories = topCategories.filter(cat => {
+        return accountTransactions.some(t => 
+          t.categoria?.nombre === cat.categoria && 
+          t.categoria?.tipo === 'gasto'
+        );
+      });
+      
+      const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'];
+      const formattedCategories = accountCategories.map((cat, index) => ({
+        name: cat.categoria,
+        value: cat.total,
+        color: colors[index],
+        percentage: cat.porcentaje
+      }));
+      
+      setCategoryData(formattedCategories);
+      
+    } catch (error) {
+      console.error('Error cargando datos de la cuenta:', error);
+    }
   };
 
   const onRefresh = () => {
     setRefreshing(true);
     loadDashboardData();
+  };
+
+  const selectAccount = (account) => {
+    setSelectedAccount(account);
+    setShowAccountSelector(false);
+  };
+
+  const getAccountIcon = (tipo) => {
+    switch(tipo) {
+      case 'banco': return 'business';
+      case 'tarjeta': return 'card';
+      case 'efectivo': return 'cash';
+      default: return 'wallet';
+    }
+  };
+
+  const getAccountTypeLabel = (tipo) => {
+    switch(tipo) {
+      case 'banco': return 'Cuenta bancaria';
+      case 'tarjeta': return 'Tarjeta de crédito/débito';
+      case 'efectivo': return 'Efectivo';
+      default: return 'Otra cuenta';
+    }
   };
 
   // Datos para la gráfica de línea (últimos 7 días)
@@ -167,7 +290,7 @@ const Dashboard = ({ navigation }) => {
                t.categoria?.tipo === 'gasto';
       });
       
-      const dayTotal = dayTransactions.reduce((sum, t) => sum + t.monto, 0);
+      const dayTotal = dayTransactions.reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
       
       data.push({
         date: date.getDate().toString(),
@@ -246,6 +369,14 @@ const Dashboard = ({ navigation }) => {
     const innerRadius = radius - 20;
     const center = size / 2;
     let currentAngle = 0;
+
+    if (!data || data.length === 0) {
+      return (
+        <View style={{ alignItems: 'center', justifyContent: 'center', height: size }}>
+          <Text style={{ color: '#999' }}>Sin datos</Text>
+        </View>
+      );
+    }
 
     return (
       <View style={{ alignItems: 'center' }}>
@@ -353,6 +484,7 @@ const Dashboard = ({ navigation }) => {
   }
 
   const expenseData = getExpenseData();
+  const currentBalance = selectedAccount ? (accountBalances[selectedAccount.id] || 0) : 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -377,194 +509,343 @@ const Dashboard = ({ navigation }) => {
                 <View style={[styles.circle, styles.circle2]} />
               </View>
             </View>
+            <TouchableOpacity onPress={() => navigation.navigate('GestionCuentas')}>
+              <Ionicons name="settings-outline" size={24} color="#333" />
+            </TouchableOpacity>
           </View>
 
           <Text style={styles.greeting}>Hola, {userData?.nombre?.split(' ')[0] || 'Usuario'}</Text>
 
-          {/* Saldo en cuenta */}
-          <Animated.View
-            style={[
-              styles.balanceCard,
-              {
-                opacity: fadeAnim,
-                transform: [
-                  { translateY: slideAnim },
-                  { scale: scaleAnim }
-                ],
-              }
-            ]}
-          >
-            <Text style={styles.balanceLabel}>Saldo en cuenta</Text>
-            <Animated.Text style={styles.balanceAmount}>
-              ${balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Animated.Text>
-            <Animated.View
-              style={[
-                styles.trendContainer,
-                { opacity: fadeAnim }
-              ]}
+          {/* Selector de cuenta */}
+          {accounts.length > 0 ? (
+            <TouchableOpacity 
+              style={styles.accountSelector}
+              onPress={() => setShowAccountSelector(true)}
+              activeOpacity={0.7}
             >
-              <Text style={styles.trendText}>
-                {monthlyData?.diferencia > 0 ? '+' : ''}{((monthlyData?.diferencia / balance) * 100).toFixed(1)}% al mes pasado
-              </Text>
-            </Animated.View>
-          </Animated.View>
-
-          {/* Ingresos y Gastos */}
-          <Animated.View
-            style={[
-              styles.statsContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
-              }
-            ]}
-          >
-            <Animated.View
-              style={[
-                styles.statCard,
-                { transform: [{ scale: scaleAnim }] }
-              ]}
-            >
-              <Text style={styles.statLabel}>Ingresos</Text>
-              <Text style={styles.statAmount}>
-                {monthlyData?.total_ingresos?.toLocaleString('es-MX', { minimumFractionDigits: 0 }) || '0'}
-              </Text>
-              <View style={styles.trendContainer}>
-                <Text style={styles.trendTextGreen}>Este mes</Text>
+              <View style={styles.accountSelectorLeft}>
+                <View style={styles.accountIcon}>
+                  <Ionicons 
+                    name={getAccountIcon(selectedAccount?.tipo)} 
+                    size={20} 
+                    color="#666" 
+                  />
+                </View>
+                <View>
+                  <Text style={styles.accountSelectorLabel}>Cuenta seleccionada</Text>
+                  <Text style={styles.accountSelectorName}>{selectedAccount?.nombre}</Text>
+                </View>
               </View>
-            </Animated.View>
+              <Animated.View
+                style={{
+                  transform: [{
+                    rotate: rotateAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', '180deg']
+                    })
+                  }]
+                }}
+              >
+                <Ionicons name="chevron-down" size={24} color="#666" />
+              </Animated.View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              style={styles.noAccountCard}
+              onPress={() => navigation.navigate('GestionCuentas')}
+            >
+              <Ionicons name="add-circle-outline" size={48} color="#999" />
+              <Text style={styles.noAccountText}>Agrega tu primera cuenta</Text>
+            </TouchableOpacity>
+          )}
 
+          {/* Saldo de la cuenta seleccionada */}
+          {selectedAccount && (
             <Animated.View
               style={[
-                styles.statCard,
-                { transform: [{ scale: scaleAnim }] }
+                styles.balanceCard,
+                {
+                  opacity: fadeAnim,
+                  transform: [
+                    { translateY: slideAnim },
+                    { scale: scaleAnim }
+                  ],
+                }
               ]}
             >
-              <Text style={styles.statLabel}>Gastos</Text>
-              <Text style={styles.statAmount}>
-                {monthlyData?.total_gastos?.toLocaleString('es-MX', { minimumFractionDigits: 0 }) || '0'}
+              <Text style={styles.balanceLabel}>Saldo disponible</Text>
+              <Text style={styles.balanceAmount}>
+                ${currentBalance.toLocaleString('es-MX', { 
+                  minimumFractionDigits: 2, 
+                  maximumFractionDigits: 2 
+                })}
               </Text>
-              <View style={styles.trendContainer}>
-                <Text style={styles.trendTextRed}>Este mes</Text>
-              </View>
-            </Animated.View>
-          </Animated.View>
-        </View>
-
-        {/* Gráfica de gastos */}
-        <Animated.View
-          style={[
-            styles.chartContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateX: slideAnim }],
-            }
-          ]}
-        >
-          <Text style={styles.chartTitle}>Gastos últimos 7 días</Text>
-          <LineChart data={expenseData} />
-        </Animated.View>
-
-        {/* Gráfica por categorías */}
-        {categoryData.length > 0 && (
-          <Animated.View
-            style={[
-              styles.chartContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateX: slideAnim }],
-              }
-            ]}
-          >
-            <Text style={styles.chartTitle}>Gastos por categoría</Text>
-            <View style={styles.donutContainer}>
-              <DonutChart data={categoryData} />
               <Animated.View
                 style={[
-                  styles.legend,
+                  styles.trendContainer,
                   { opacity: fadeAnim }
                 ]}
               >
-                {categoryData.map((item, index) => (
+                <Text style={[
+                  styles.trendText,
+                  monthlyData?.diferencia < 0 && styles.trendTextRed
+                ]}>
+                  {monthlyData?.diferencia > 0 ? '+' : ''}{((monthlyData?.diferencia / (currentBalance || 1)) * 100).toFixed(1)}% este mes
+                </Text>
+              </Animated.View>
+            </Animated.View>
+          )}
+
+          {/* Ingresos y Gastos de la cuenta seleccionada */}
+          {selectedAccount && (
+            <Animated.View
+              style={[
+                styles.statsContainer,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                }
+              ]}
+            >
+              <Animated.View
+                style={[
+                  styles.statCard,
+                  { transform: [{ scale: scaleAnim }] }
+                ]}
+              >
+                <Text style={styles.statLabel}>Ingresos del mes</Text>
+                <Text style={styles.statAmount}>
+                  ${(monthlyData?.total_ingresos || 0).toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                </Text>
+              </Animated.View>
+
+              <Animated.View
+                style={[
+                  styles.statCard,
+                  { transform: [{ scale: scaleAnim }] }
+                ]}
+              >
+                <Text style={styles.statLabel}>Gastos del mes</Text>
+                <Text style={styles.statAmount}>
+                  ${(monthlyData?.total_gastos || 0).toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                </Text>
+              </Animated.View>
+            </Animated.View>
+          )}
+        </View>
+
+        {/* Gráficas solo si hay cuenta seleccionada */}
+        {selectedAccount && (
+          <>
+            {/* Gráfica de gastos */}
+            <Animated.View
+              style={[
+                styles.chartContainer,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateX: slideAnim }],
+                }
+              ]}
+            >
+              <Text style={styles.chartTitle}>Gastos últimos 7 días</Text>
+              <LineChart data={expenseData} />
+            </Animated.View>
+
+            {/* Gráfica por categorías */}
+            {categoryData.length > 0 && (
+              <Animated.View
+                style={[
+                  styles.chartContainer,
+                  {
+                    opacity: fadeAnim,
+                    transform: [{ translateX: slideAnim }],
+                  }
+                ]}
+              >
+                <Text style={styles.chartTitle}>Gastos por categoría</Text>
+                <View style={styles.donutContainer}>
+                  <DonutChart data={categoryData} />
                   <Animated.View
-                    key={index}
                     style={[
-                      styles.legendItem,
-                      {
-                        opacity: fadeAnim,
-                        transform: [
-                          {
-                            translateX: slideAnim.interpolate({
-                              inputRange: [0, 50],
-                              outputRange: [0, 20],
-                            })
-                          }
-                        ],
-                      }
+                      styles.legend,
+                      { opacity: fadeAnim }
                     ]}
                   >
-                    <View style={[styles.legendColor, { backgroundColor: item.color }]} />
-                    <Text style={styles.legendText}>{item.name}</Text>
-                    <Text style={styles.legendValue}>
-                      ${item.value.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
-                    </Text>
+                    {categoryData.map((item, index) => (
+                      <Animated.View
+                        key={index}
+                        style={[
+                          styles.legendItem,
+                          {
+                            opacity: fadeAnim,
+                            transform: [
+                              {
+                                translateX: slideAnim.interpolate({
+                                  inputRange: [0, 50],
+                                  outputRange: [0, 20],
+                                })
+                              }
+                            ],
+                          }
+                        ]}
+                      >
+                        <View style={[styles.legendColor, { backgroundColor: item.color }]} />
+                        <Text style={styles.legendText}>{item.name}</Text>
+                        <Text style={styles.legendValue}>
+                          ${item.value.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                        </Text>
+                      </Animated.View>
+                    ))}
                   </Animated.View>
-                ))}
+                </View>
               </Animated.View>
-            </View>
-          </Animated.View>
+            )}
+
+            {/* Alertas importantes */}
+            <Animated.View
+              style={[
+                styles.alertsContainer,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                }
+              ]}
+            >
+              <View style={styles.alertsHeader}>
+                <Text style={styles.alertsTitle}>INFORMACIÓN</Text>
+                <Text style={styles.alertsArrow}>›</Text>
+              </View>
+
+              <View style={styles.alertsGrid}>
+                <Animated.View
+                  style={[
+                    styles.alertCard,
+                    styles.rentAlert,
+                    { transform: [{ scale: scaleAnim }] }
+                  ]}
+                >
+                  <Text style={styles.alertIcon}>📊</Text>
+                  <Text style={styles.alertDescription}>Transacciones del mes</Text>
+                  <Text style={styles.alertTitle}>MOVIMIENTOS</Text>
+                  <Text style={styles.alertAmount}>{transactions.length}</Text>
+                </Animated.View>
+
+                <Animated.View
+                  style={[
+                    styles.alertCard,
+                    styles.budgetAlert,
+                    { transform: [{ scale: scaleAnim }] }
+                  ]}
+                >
+                  <Text style={styles.alertIcon}>💰</Text>
+                  <Text style={styles.alertDescription}>Balance del mes</Text>
+                  <Text style={styles.alertTitle}>DIFERENCIA</Text>
+                  <Text style={[
+                    styles.alertAmount,
+                    { color: (monthlyData?.diferencia || 0) >= 0 ? '#10B981' : '#EF4444' }
+                  ]}>
+                    ${(monthlyData?.diferencia || 0).toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                  </Text>
+                </Animated.View>
+              </View>
+
+              {/* Saldo total de todas las cuentas */}
+              <View style={styles.totalBalanceSection}>
+                <Text style={styles.totalBalanceTitle}>Patrimonio total</Text>
+                <Text style={styles.totalBalanceSubtitle}>Suma de todas tus cuentas</Text>
+                <Text style={styles.totalBalanceAmount}>
+                  ${totalBalance.toLocaleString('es-MX', { 
+                    minimumFractionDigits: 2, 
+                    maximumFractionDigits: 2 
+                  })}
+                </Text>
+              </View>
+            </Animated.View>
+          </>
         )}
-
-        {/* Alertas importantes */}
-        <Animated.View
-          style={[
-            styles.alertsContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            }
-          ]}
-        >
-          <View style={styles.alertsHeader}>
-            <Text style={styles.alertsTitle}>INFORMACIÓN</Text>
-            <Text style={styles.alertsArrow}>›</Text>
-          </View>
-
-          <View style={styles.alertsGrid}>
-            <Animated.View
-              style={[
-                styles.alertCard,
-                styles.rentAlert,
-                { transform: [{ scale: scaleAnim }] }
-              ]}
-            >
-              <Text style={styles.alertIcon}>📊</Text>
-              <Text style={styles.alertDescription}>Transacciones del mes</Text>
-              <Text style={styles.alertTitle}>MOVIMIENTOS</Text>
-              <Text style={styles.alertAmount}>{transactions.length}</Text>
-            </Animated.View>
-
-            <Animated.View
-              style={[
-                styles.alertCard,
-                styles.budgetAlert,
-                { transform: [{ scale: scaleAnim }] }
-              ]}
-            >
-              <Text style={styles.alertIcon}>💰</Text>
-              <Text style={styles.alertDescription}>Balance del mes</Text>
-              <Text style={styles.alertTitle}>DIFERENCIA</Text>
-              <Text style={[
-                styles.alertAmount,
-                { color: monthlyData?.diferencia >= 0 ? '#10B981' : '#EF4444' }
-              ]}>
-                ${monthlyData?.diferencia?.toLocaleString('es-MX', { minimumFractionDigits: 0 }) || '0'}
-              </Text>
-            </Animated.View>
-          </View>
-        </Animated.View>
       </ScrollView>
+
+      {/* Modal selector de cuentas */}
+      <Modal
+        visible={showAccountSelector}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAccountSelector(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowAccountSelector(false)}
+        >
+          <View style={styles.accountSelectorModal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Seleccionar cuenta</Text>
+              <TouchableOpacity onPress={() => setShowAccountSelector(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.accountsList}>
+              {accounts.map((account) => {
+                const balance = accountBalances[account.id] || 0;
+                const isSelected = selectedAccount?.id === account.id;
+
+                return (
+                  <TouchableOpacity
+                    key={account.id}
+                    style={[
+                      styles.accountItem,
+                      isSelected && styles.accountItemSelected
+                    ]}
+                    onPress={() => selectAccount(account)}
+                  >
+                    <View style={styles.accountItemLeft}>
+                      <View style={[
+                        styles.accountItemIcon,
+                        isSelected && styles.accountItemIconSelected
+                      ]}>
+                        <Ionicons 
+                          name={getAccountIcon(account.tipo)} 
+                          size={24} 
+                          color={isSelected ? '#fff' : '#666'} 
+                        />
+                      </View>
+                      <View>
+                        <Text style={[
+                          styles.accountItemName,
+                          isSelected && styles.accountItemNameSelected
+                        ]}>
+                          {account.nombre}
+                        </Text>
+                        <Text style={[
+                          styles.accountItemType,
+                          isSelected && styles.accountItemTypeSelected
+                        ]}>
+                          {getAccountTypeLabel(account.tipo)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.accountItemRight}>
+                      <Text style={[
+                        styles.accountItemBalance,
+                        isSelected && styles.accountItemBalanceSelected
+                      ]}>
+                        ${balance.toLocaleString('es-MX', { 
+                          minimumFractionDigits: 2, 
+                          maximumFractionDigits: 2 
+                        })}
+                      </Text>
+                      {isSelected && (
+                        <Ionicons name="checkmark-circle" size={20} color="#000" />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
@@ -652,60 +933,86 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff8c00',
     marginLeft: -8,
   },
-  appName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-    letterSpacing: 1,
-  },
-  bellIcon: {
-    fontSize: 20,
-  },
   greeting: {
     fontSize: 24,
     fontWeight: '600',
     color: '#333',
     marginBottom: 24,
   },
-  balanceCard: {
+  accountSelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: '#f8f9fa',
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
+    marginBottom: 20,
+  },
+  accountSelectorLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  accountIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  accountSelectorLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
+  accountSelectorName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  noAccountCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    padding: 32,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  noAccountText: {
+    fontSize: 16,
+    color: '#999',
+    marginTop: 12,
+  },
+  balanceCard: {
+    backgroundColor: '#000',
+    borderRadius: 16,
+    padding: 24,
     marginBottom: 20,
   },
   balanceLabel: {
     fontSize: 14,
-    color: '#666',
+    color: 'rgba(255,255,255,0.7)',
     marginBottom: 8,
   },
   balanceAmount: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#fff',
     marginBottom: 8,
   },
   trendContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  trendIcon: {
-    fontSize: 12,
-    marginRight: 4,
-  },
-  trendIconRed: {
-    fontSize: 12,
-    marginRight: 4,
-  },
   trendText: {
-    fontSize: 12,
-    color: '#10B981',
-  },
-  trendTextGreen: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#10B981',
   },
   trendTextRed: {
-    fontSize: 12,
     color: '#EF4444',
   },
   statsContainer: {
@@ -727,7 +1034,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 4,
   },
   chartContainer: {
     backgroundColor: '#fff',
@@ -749,17 +1055,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   chartLabel: {
-    fontSize: 10,
-    color: '#999',
-  },
-  yAxisLabels: {
-    position: 'absolute',
-    right: 0,
-    top: 60,
-    height: 120,
-    justifyContent: 'space-between',
-  },
-  yAxisLabel: {
     fontSize: 10,
     color: '#999',
   },
@@ -815,6 +1110,7 @@ const styles = StyleSheet.create({
   alertsGrid: {
     flexDirection: 'row',
     gap: 16,
+    marginBottom: 24,
   },
   alertCard: {
     flex: 1,
@@ -850,6 +1146,109 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
+  totalBalanceSection: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 16,
+    padding: 20,
+  },
+  totalBalanceTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2E7D32',
+    marginBottom: 4,
+  },
+  totalBalanceSubtitle: {
+    fontSize: 14,
+    color: '#4CAF50',
+    marginBottom: 12,
+  },
+  totalBalanceAmount: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1B5E20',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  accountSelectorModal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  accountsList: {
+    padding: 16,
+  },
+  accountItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: '#f8f9fa',
+  },
+  accountItemSelected: {
+    backgroundColor: '#000',
+  },
+  accountItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  accountItemIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  accountItemIconSelected: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  accountItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  accountItemNameSelected: {
+    color: '#fff',
+  },
+  accountItemType: {
+    fontSize: 14,
+    color: '#666',
+  },
+  accountItemTypeSelected: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+  accountItemRight: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  accountItemBalance: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  accountItemBalanceSelected: {
+    color: '#fff',
+  },
   bottomNav: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -865,14 +1264,6 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     opacity: 1,
-  },
-  homeIndicator: {
-    width: 134,
-    height: 5,
-    backgroundColor: '#000',
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 8,
   },
 });
 
