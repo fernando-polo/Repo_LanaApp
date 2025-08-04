@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,35 @@ import {
   StatusBar,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { authService } from '../utils/auth';
 
-const LoginScreen = ({ navigation }) => {
+const LoginScreen = ({ navigation, route }) => {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
+  // Verificar si viene de un registro exitoso
+  useEffect(() => {
+    if (route.params?.registrationSuccess) {
+      // Mostrar mensaje de éxito
+      setTimeout(() => {
+        Alert.alert(
+          '¡Cuenta creada exitosamente!',
+          'Ya puedes iniciar sesión con tu correo y contraseña.',
+          [{ text: 'OK' }]
+        );
+      }, 500);
+      
+      // Si viene el email, pre-llenarlo
+      if (route.params?.userEmail) {
+        setEmail(route.params.userEmail);
+      }
+    }
+  }, [route.params]);
+
+  const handleLogin = async () => {
     if (!email) {
       Alert.alert('Error', 'Por favor introduce tu correo electrónico');
       return;
@@ -24,27 +47,58 @@ const LoginScreen = ({ navigation }) => {
       Alert.alert('Error', 'Por favor introduce un correo válido');
       return;
     }
+
+    if (!password) {
+      Alert.alert('Error', 'Por favor introduce tu contraseña');
+      return;
+    }
     
-    console.log('Iniciando sesión con email:', email);
-    navigation.navigate('Dashboard'); 
+    setLoading(true);
+    
+    try {
+      const response = await authService.login(email, password);
+      console.log('Login exitoso:', response);
+      
+      // Navegar al Dashboard
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Dashboard' }],
+      });
+    } catch (error) {
+      console.error('Error en login:', error);
+      
+      let errorMessage = 'Error al iniciar sesión';
+      
+      if (error.response) {
+        if (error.response.status === 401) {
+          errorMessage = 'Credenciales incorrectas';
+        } else if (error.response.data?.detail) {
+          errorMessage = error.response.data.detail;
+        }
+      } else if (error.request) {
+        errorMessage = 'No se pudo conectar con el servidor';
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleForgotPassword = () => {
-    console.log('Olvidé mi contraseña');
     navigation.navigate('RecuperarPassword');
   };
 
   const handleCreateAccount = () => {
-    console.log('Ir a crear cuenta nueva');
     navigation.navigate('Register');
   };
 
   const handleGoogleLogin = () => {
-    console.log('Login con Google');
+    Alert.alert('Información', 'Login con Google aún no implementado');
   };
 
   const handleAppleLogin = () => {
-    console.log('Login con Apple');
+    Alert.alert('Información', 'Login con Apple aún no implementado');
   };
 
   return (
@@ -52,6 +106,13 @@ const LoginScreen = ({ navigation }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
       <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         <View style={styles.content}>
+          {/* Mensaje de éxito si viene del registro */}
+          {route.params?.registrationSuccess && (
+            <View style={styles.successBanner}>
+              <Text style={styles.successText}>✓ Cuenta creada exitosamente</Text>
+            </View>
+          )}
+
           {/* Logo */}
           <View style={styles.logoContainer}>
             <View style={styles.logoCircles}>
@@ -63,11 +124,11 @@ const LoginScreen = ({ navigation }) => {
 
           {/* Título */}
           <Text style={styles.title}>Iniciar sesión</Text>
-          <Text style={styles.subtitle}>Introduce tu correo para acceder a tu cuenta</Text>
+          <Text style={styles.subtitle}>Introduce tu correo y contraseña para acceder</Text>
 
           {/* Input de email */}
           <TextInput
-            style={styles.emailInput}
+            style={styles.input}
             placeholder="usuario@example.com"
             placeholderTextColor="#999"
             value={email}
@@ -75,10 +136,28 @@ const LoginScreen = ({ navigation }) => {
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            editable={!loading}
+          />
+
+          {/* Input de contraseña */}
+          <TextInput
+            style={styles.input}
+            placeholder="Contraseña"
+            placeholderTextColor="#999"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!loading}
           />
           
           {/* Olvidé mi contraseña*/}
-          <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotPasswordBottom}>
+          <TouchableOpacity 
+            onPress={handleForgotPassword} 
+            style={styles.forgotPasswordBottom}
+            disabled={loading}
+          >
             <Text style={styles.forgotPasswordText}>¿Olvidaste tu contraseña?</Text>
           </TouchableOpacity>
 
@@ -87,12 +166,20 @@ const LoginScreen = ({ navigation }) => {
           </View>
 
           {/* Botón ENTRAR */}
-          <TouchableOpacity style={styles.enterButton} onPress={handleLogin}>
-            <Text style={styles.enterButtonText}>ENTRAR</Text>
+          <TouchableOpacity 
+            style={[styles.enterButton, loading && styles.enterButtonDisabled]} 
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.enterButtonText}>ENTRAR</Text>
+            )}
           </TouchableOpacity>
 
           {/* Crear cuenta nueva */}
-          <TouchableOpacity onPress={handleCreateAccount}>
+          <TouchableOpacity onPress={handleCreateAccount} disabled={loading}>
             <Text style={styles.createAccount}>¿No tienes cuenta? Crear cuenta nueva</Text>
           </TouchableOpacity>
 
@@ -104,14 +191,22 @@ const LoginScreen = ({ navigation }) => {
           </View>
 
           {/* Botones de OAuth */}
-          <TouchableOpacity style={styles.oauthButton} onPress={handleGoogleLogin}>
+          <TouchableOpacity 
+            style={[styles.oauthButton, loading && styles.oauthButtonDisabled]} 
+            onPress={handleGoogleLogin}
+            disabled={loading}
+          >
             <View style={styles.googleIcon}>
               <Text style={styles.googleG}>G</Text>
             </View>
             <Text style={styles.oauthButtonText}>Continuar con Google</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.oauthButton} onPress={handleAppleLogin}>
+          <TouchableOpacity 
+            style={[styles.oauthButton, loading && styles.oauthButtonDisabled]} 
+            onPress={handleAppleLogin}
+            disabled={loading}
+          >
             <Text style={styles.appleIcon}></Text>
             <Text style={styles.oauthButtonText}>Continuar con Apple</Text>
           </TouchableOpacity>
@@ -120,8 +215,6 @@ const LoginScreen = ({ navigation }) => {
           <Text style={styles.termsText}>
             Al hacer clic en continuar, acepta nuestros Términos de servicio y Política de privacidad.
           </Text>
-
-          
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -137,6 +230,19 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 32,
     paddingTop: 60,
+  },
+  successBanner: {
+    backgroundColor: '#10B981',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+    marginHorizontal: -32,
+  },
+  successText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '600',
   },
   logoContainer: {
     alignItems: 'center',
@@ -179,7 +285,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 40,
   },
-  emailInput: {
+  input: {
     backgroundColor: '#fff',
     borderRadius: 12,
     paddingHorizontal: 20,
@@ -187,7 +293,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#e0e0e0',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   enterButton: {
     backgroundColor: '#000',
@@ -195,6 +301,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 32,
+  },
+  enterButtonDisabled: {
+    backgroundColor: '#666',
   },
   enterButtonText: {
     color: '#fff',
@@ -241,6 +350,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 16,
   },
+  oauthButtonDisabled: {
+    opacity: 0.6,
+  },
   googleIcon: {
     width: 24,
     height: 24,
@@ -278,6 +390,7 @@ const styles = StyleSheet.create({
   },
   forgotPasswordBottom: {
     marginTop: 20,
+    marginBottom: 20,
   },
   forgotPasswordText: {
     fontSize: 14,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,29 +11,198 @@ import {
   Modal,
   TextInput,
   Button,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { authService } from '../utils/auth';
+import { userService } from '../utils/userService';
 
 const PerfilUsuario = ({ navigation }) => {
   const [notificationsApp, setNotificationsApp] = useState(true);
   const [notificationsEmail, setNotificationsEmail] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const [nombre, setNombre] = useState('Fernando Gómez Maldonado');
-  const [correo, setCorreo] = useState('fernando.gomez@gmail.com');
-  const [contrasena, setContrasena] = useState('•••••••••••');
+  // Estados para datos del usuario
+  const [userData, setUserData] = useState(null);
+  const [nombre, setNombre] = useState('');
+  const [correo, setCorreo] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const guardarCambios = () => {
-    // Aquí podrías integrar backend o lógica adicional
-    setModalVisible(false);
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      setLoadingProfile(true);
+      const user = await userService.getCurrentUser();
+      console.log('Datos del usuario:', user);
+      
+      setUserData(user);
+      setNombre(user.nombre || '');
+      setCorreo(user.email || '');
+      setTelefono(user.telefono || '');
+      
+      // Las notificaciones vendrían de preferencias si existieran en la API
+      // Por ahora dejamos los valores por defecto
+    } catch (error) {
+      console.error('Error cargando datos del usuario:', error);
+      Alert.alert('Error', 'No se pudieron cargar los datos del usuario');
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  const guardarCambios = async () => {
+    // Validaciones
+    if (!nombre || !correo) {
+      Alert.alert('Error', 'El nombre y correo son obligatorios');
+      return;
+    }
+
+    if (!correo.includes('@')) {
+      Alert.alert('Error', 'Por favor introduce un correo válido');
+      return;
+    }
+
+    if (telefono && telefono.length < 10) {
+      Alert.alert('Error', 'El teléfono debe tener al menos 10 dígitos');
+      return;
+    }
+
+    // Si se está cambiando la contraseña
+    if (password || confirmPassword) {
+      if (!password || !confirmPassword) {
+        Alert.alert('Error', 'Debes llenar ambos campos de contraseña');
+        return;
+      }
+      
+      if (password.length < 8) {
+        Alert.alert('Error', 'La contraseña debe tener al menos 8 caracteres');
+        return;
+      }
+      
+      if (password !== confirmPassword) {
+        Alert.alert('Error', 'Las contraseñas no coinciden');
+        return;
+      }
+    }
+
+    setSaving(true);
+
+    try {
+      const updateData = {
+        nombre,
+        email: correo,
+        telefono
+      };
+
+      // Solo incluir contraseña si se está cambiando
+      if (password) {
+        updateData.password = password;
+      }
+
+      const updatedUser = await userService.updateUser(updateData);
+      console.log('Usuario actualizado:', updatedUser);
+      
+      setUserData(updatedUser);
+      setPassword('');
+      setConfirmPassword('');
+      setModalVisible(false);
+      
+      Alert.alert('Éxito', 'Tus datos han sido actualizados correctamente');
+    } catch (error) {
+      console.error('Error actualizando usuario:', error);
+      
+      let errorMessage = 'No se pudieron actualizar los datos';
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const cerrarSesion = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
+    console.log('Iniciando proceso de cierre de sesión...');
+    
+    Alert.alert(
+      'Cerrar sesión',
+      '¿Estás seguro de que deseas cerrar sesión?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+          onPress: () => console.log('Cierre de sesión cancelado')
+        },
+        {
+          text: 'Sí, cerrar sesión',
+          style: 'destructive',
+          onPress: async () => {
+            console.log('Usuario confirmó cerrar sesión');
+            setLoading(true);
+            
+            try {
+              await authService.logout();
+              console.log('Logout exitoso');
+              
+              // Pequeña pausa para mostrar el loading
+              setTimeout(() => {
+                setLoading(false);
+                // Resetear la navegación y volver al Login
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              }, 500);
+              
+            } catch (error) {
+              console.error('Error al cerrar sesión:', error);
+              setLoading(false);
+              Alert.alert('Error', 'No se pudo cerrar sesión correctamente');
+            }
+          }
+        }
+      ],
+      { cancelable: true }
+    );
   };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#000" />
+        <Text style={styles.loadingText}>Cerrando sesión...</Text>
+      </View>
+    );
+  }
+
+  if (loadingProfile) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Perfil de usuario</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+          <Text style={styles.loadingText}>Cargando perfil...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -48,15 +217,17 @@ const PerfilUsuario = ({ navigation }) => {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Hora */}
-      <Text style={styles.timeText}>9:41</Text>
-
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Información del usuario */}
         <View style={styles.profileSection}>
-          <Text style={styles.profileName}>{nombre}</Text>
-          <Text style={styles.profileEmail}>{correo}</Text>
-          <Text style={styles.profilePassword}>{contrasena}</Text>
+          <Text style={styles.profileName}>{userData?.nombre || 'Usuario'}</Text>
+          <Text style={styles.profileEmail}>{userData?.email || 'No disponible'}</Text>
+          <Text style={styles.profilePhone}>
+            {userData?.telefono ? `Tel: ${userData.telefono}` : 'Teléfono no registrado'}
+          </Text>
+          <Text style={styles.profileDate}>
+            Miembro desde: {userData?.created_at ? new Date(userData.created_at).toLocaleDateString('es-MX') : 'N/A'}
+          </Text>
         </View>
 
         {/* Configuración de notificaciones */}
@@ -85,11 +256,26 @@ const PerfilUsuario = ({ navigation }) => {
         </View>
 
         {/* Botones de acción */}
-        <TouchableOpacity style={styles.actionButton} onPress={() => setModalVisible(true)}>
+        <TouchableOpacity 
+          style={styles.actionButton} 
+          onPress={() => {
+            // Pre-llenar el modal con los datos actuales
+            setNombre(userData?.nombre || '');
+            setCorreo(userData?.email || '');
+            setTelefono(userData?.telefono || '');
+            setPassword('');
+            setConfirmPassword('');
+            setModalVisible(true);
+          }}
+        >
           <Text style={styles.actionButtonText}>Editar información</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.actionButton, styles.logoutButton]} onPress={cerrarSesion}>
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.logoutButton]} 
+          onPress={cerrarSesion}
+          activeOpacity={0.7}
+        >
           <Text style={[styles.actionButtonText, styles.logoutButtonText]}>Cerrar sesión</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -102,28 +288,72 @@ const PerfilUsuario = ({ navigation }) => {
 
             <TextInput
               style={styles.input}
-              placeholder="Nombre"
+              placeholder="Nombre completo"
               value={nombre}
               onChangeText={setNombre}
+              editable={!saving}
             />
             <TextInput
               style={styles.input}
-              placeholder="Correo"
+              placeholder="Correo electrónico"
               value={correo}
               onChangeText={setCorreo}
               keyboardType="email-address"
+              autoCapitalize="none"
+              editable={!saving}
             />
             <TextInput
               style={styles.input}
-              placeholder="Contraseña"
-              value={contrasena}
-              onChangeText={setContrasena}
-              secureTextEntry
+              placeholder="Teléfono"
+              value={telefono}
+              onChangeText={setTelefono}
+              keyboardType="phone-pad"
+              editable={!saving}
             />
+            
+            <View style={styles.passwordSection}>
+              <Text style={styles.passwordTitle}>Cambiar contraseña (opcional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Nueva contraseña"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                editable={!saving}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Confirmar nueva contraseña"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                editable={!saving}
+              />
+            </View>
 
-            <View style={{ marginTop: 20 }}>
-              <Button title="Guardar" onPress={guardarCambios} />
-              <Button title="Cancelar" onPress={() => setModalVisible(false)} color="#999" />
+            <View style={styles.modalButtons}>
+              {saving ? (
+                <ActivityIndicator size="large" color="#000" />
+              ) : (
+                <>
+                  <TouchableOpacity 
+                    style={styles.modalButton} 
+                    onPress={guardarCambios}
+                  >
+                    <Text style={styles.modalButtonText}>Guardar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.modalButtonCancel]} 
+                    onPress={() => setModalVisible(false)}
+                  >
+                    <Text style={[styles.modalButtonText, styles.modalButtonCancelText]}>
+                      Cancelar
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         </View>
@@ -134,10 +364,10 @@ const PerfilUsuario = ({ navigation }) => {
         <TouchableOpacity style={styles.tabButton} onPress={() => navigation.navigate('Dashboard')}>
           <Ionicons name="home" size={24} color="#999" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabButton} onPress={() => navigation.navigate('TransactionMenu')}>
+        <TouchableOpacity style={styles.tabButton}>
           <Ionicons name="stats-chart" size={24} color="#999" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabButton} onPress={() => navigation.navigate('Notificaciones')}>
+        <TouchableOpacity style={styles.tabButton}>
           <Ionicons name="notifications" size={24} color="#999" />
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
@@ -149,7 +379,17 @@ const PerfilUsuario = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  // ... (mantén todos tus estilos anteriores)
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -162,6 +402,7 @@ const styles = StyleSheet.create({
     padding: 24,
     borderRadius: 12,
     elevation: 10,
+    maxHeight: '80%',
   },
   modalTitle: {
     fontSize: 18,
@@ -175,6 +416,38 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 16,
     fontSize: 16,
+  },
+  passwordSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  passwordTitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 12,
+  },
+  modalButtons: {
+    marginTop: 24,
+    gap: 12,
+  },
+  modalButton: {
+    backgroundColor: '#000',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalButtonCancel: {
+    backgroundColor: '#f0f0f0',
+  },
+  modalButtonCancelText: {
+    color: '#666',
   },
   container: {
     flex: 1,
@@ -192,12 +465,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
-  },
-  timeText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginVertical: 8,
   },
   content: {
     flex: 1,
@@ -219,9 +486,15 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 8,
   },
-  profilePassword: {
+  profilePhone: {
     fontSize: 16,
     color: '#666',
+    marginBottom: 8,
+  },
+  profileDate: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 4,
   },
   settingsSection: {
     paddingVertical: 24,

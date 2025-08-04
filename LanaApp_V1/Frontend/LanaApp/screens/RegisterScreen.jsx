@@ -8,16 +8,25 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
-  ScrollView, 
+  ScrollView,
+  ActivityIndicator,
 } from 'react-native';
+import { authService } from '../utils/auth';
 
 const RegisterScreen = ({ navigation }) => {
+  const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
+  const [telefono, setTelefono] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleRegister = () => {
-    
+  const handleRegister = async () => {
+    // Validaciones
+    if (!nombre) {
+      Alert.alert('Error', 'Por favor introduce tu nombre completo');
+      return;
+    }
 
     if (!email) {
       Alert.alert('Error', 'Por favor introduce tu correo electrónico');
@@ -29,13 +38,23 @@ const RegisterScreen = ({ navigation }) => {
       return;
     }
 
+    if (!telefono) {
+      Alert.alert('Error', 'Por favor introduce tu número de teléfono');
+      return;
+    }
+
+    if (telefono.length < 10) {
+      Alert.alert('Error', 'El número de teléfono debe tener al menos 10 dígitos');
+      return;
+    }
+
     if (!password) {
       Alert.alert('Error', 'Por favor introduce una contraseña');
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
+    if (password.length < 8) {
+      Alert.alert('Error', 'La contraseña debe tener al menos 8 caracteres');
       return;
     }
 
@@ -44,20 +63,62 @@ const RegisterScreen = ({ navigation }) => {
       return;
     }
     
-    Alert.alert('Éxito', 'Cuenta creada correctamente');
-    navigation.replace('Dashboard'); 
+    setLoading(true);
+    
+    try {
+      const userData = {
+        nombre,
+        email,
+        telefono,
+        password
+      };
+      
+      console.log('Enviando datos de registro:', userData);
+      
+      const response = await authService.register(userData);
+      console.log('Respuesta del servidor:', response);
+      
+      // Navegar al login con parámetros de éxito
+      navigation.navigate('Login', {
+        registrationSuccess: true,
+        userEmail: email
+      });
+      
+    } catch (error) {
+      console.error('Error completo en registro:', error);
+      
+      let errorMessage = 'Error al crear la cuenta';
+      
+      if (error.response) {
+        if (error.response.status === 400) {
+          if (error.response.data?.detail === 'El email ya está registrado') {
+            errorMessage = 'Este correo electrónico ya está registrado';
+          } else if (error.response.data?.detail) {
+            errorMessage = error.response.data.detail;
+          }
+        } else if (error.response.data?.detail) {
+          errorMessage = error.response.data.detail;
+        }
+      } else if (error.request) {
+        errorMessage = 'No se pudo conectar con el servidor. Verifica tu conexión.';
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBackToLogin = () => {
-    console.log('Volver al login');
+    navigation.navigate('Login');
   };
 
   const handleGoogleRegister = () => {
-    console.log('Registro con Google');
+    Alert.alert('Información', 'Registro con Google aún no implementado');
   };
 
   const handleAppleRegister = () => {
-    console.log('Registro con Apple');
+    Alert.alert('Información', 'Registro con Apple aún no implementado');
   };
 
   return (
@@ -78,7 +139,17 @@ const RegisterScreen = ({ navigation }) => {
           <Text style={styles.title}>Crear una cuenta nueva</Text>
           <Text style={styles.subtitle}>Completa los datos para registrarte</Text>
 
-          
+          {/* Input de nombre */}
+          <TextInput
+            style={styles.input}
+            placeholder="Nombre completo"
+            placeholderTextColor="#999"
+            value={nombre}
+            onChangeText={setNombre}
+            autoCapitalize="words"
+            autoCorrect={false}
+            editable={!loading}
+          />
 
           {/* Input de email */}
           <TextInput
@@ -90,18 +161,32 @@ const RegisterScreen = ({ navigation }) => {
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            editable={!loading}
+          />
+
+          {/* Input de teléfono */}
+          <TextInput
+            style={styles.input}
+            placeholder="Número de teléfono (10 dígitos)"
+            placeholderTextColor="#999"
+            value={telefono}
+            onChangeText={setTelefono}
+            keyboardType="phone-pad"
+            maxLength={15}
+            editable={!loading}
           />
 
           {/* Input de contraseña */}
           <TextInput
             style={styles.input}
-            placeholder="Contraseña (mínimo 6 caracteres)"
+            placeholder="Contraseña (mínimo 8 caracteres)"
             placeholderTextColor="#999"
             value={password}
             onChangeText={setPassword}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
+            editable={!loading}
           />
 
           {/* Input de confirmar contraseña */}
@@ -114,15 +199,24 @@ const RegisterScreen = ({ navigation }) => {
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
+            editable={!loading}
           />
 
           {/* Botón CREAR CUENTA */}
-          <TouchableOpacity style={styles.registerButton} onPress={handleRegister}>
-            <Text style={styles.registerButtonText}>CREAR CUENTA</Text>
+          <TouchableOpacity 
+            style={[styles.registerButton, loading && styles.registerButtonDisabled]} 
+            onPress={handleRegister}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.registerButtonText}>CREAR CUENTA</Text>
+            )}
           </TouchableOpacity>
 
           {/* Volver al login */}
-          <TouchableOpacity onPress={handleBackToLogin}>
+          <TouchableOpacity onPress={handleBackToLogin} disabled={loading}>
             <Text style={styles.backToLogin}>¿Ya tienes cuenta? Iniciar sesión</Text>
           </TouchableOpacity>
 
@@ -134,14 +228,22 @@ const RegisterScreen = ({ navigation }) => {
           </View>
 
           {/* Botones de OAuth */}
-          <TouchableOpacity style={styles.oauthButton} onPress={handleGoogleRegister}>
+          <TouchableOpacity 
+            style={[styles.oauthButton, loading && styles.oauthButtonDisabled]} 
+            onPress={handleGoogleRegister}
+            disabled={loading}
+          >
             <View style={styles.googleIcon}>
               <Text style={styles.googleG}>G</Text>
             </View>
             <Text style={styles.oauthButtonText}>Registrarse con Google</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.oauthButton} onPress={handleAppleRegister}>
+          <TouchableOpacity 
+            style={[styles.oauthButton, loading && styles.oauthButtonDisabled]} 
+            onPress={handleAppleRegister}
+            disabled={loading}
+          >
             <Text style={styles.appleIcon}></Text>
             <Text style={styles.oauthButtonText}>Registrarse con Apple</Text>
           </TouchableOpacity>
@@ -231,6 +333,9 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     marginTop: 8,
   },
+  registerButtonDisabled: {
+    backgroundColor: '#666',
+  },
   registerButtonText: {
     color: '#fff',
     fontSize: 16,
@@ -267,6 +372,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     marginBottom: 16,
+  },
+  oauthButtonDisabled: {
+    opacity: 0.6,
   },
   googleIcon: {
     width: 24,

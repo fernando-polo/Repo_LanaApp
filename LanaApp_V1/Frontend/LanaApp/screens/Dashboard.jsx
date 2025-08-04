@@ -9,26 +9,45 @@ import {
   StatusBar,
   Dimensions,
   Animated,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import Svg, { Path, Circle, G, Text as SvgText } from 'react-native-svg';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import TransactionMenu from './TransactionMenu';
+import { userService } from '../utils/userService';
+import { transactionService } from '../utils/transactionService';
+import { accountService } from '../utils/accountService';
 
 const { width } = Dimensions.get('window');
 
 const Dashboard = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [showTransactionMenu, setShowTransactionMenu] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Estados para datos reales
+  const [userData, setUserData] = useState(null);
+  const [balance, setBalance] = useState(0);
+  const [transactions, setTransactions] = useState([]);
+  const [monthlyData, setMonthlyData] = useState(null);
+  const [categoryData, setCategoryData] = useState([]);
+  const [accounts, setAccounts] = useState([]);
 
   // Referencias para animaciones
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const balanceCountAnim = useRef(new Animated.Value(0)).current;
-  const chartDrawAnim = useRef(new Animated.Value(0)).current;
 
-  // Animación de entrada al cargar el componente
   useEffect(() => {
+    loadDashboardData();
+    startAnimations();
+  }, []);
+
+  const startAnimations = () => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -45,44 +64,126 @@ const Dashboard = ({ navigation }) => {
         duration: 700,
         useNativeDriver: true,
       }),
+    ]).start();
+  };
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Obtener datos del usuario
+      const user = await userService.getCurrentUser();
+      setUserData(user);
+      
+      // Obtener cuentas
+      const accountsData = await accountService.getAccounts();
+      setAccounts(accountsData);
+      
+      // Calcular saldo total
+      const totalBalance = accountsData.reduce((sum, account) => sum + account.saldo_inicial, 0);
+      
+      // Obtener transacciones recientes
+      const transactionsData = await transactionService.getTransactions({ limit: 10 });
+      setTransactions(transactionsData);
+      
+      // Calcular saldo actual considerando transacciones
+      const transactionBalance = await calculateTransactionBalance(transactionsData);
+      const currentBalance = totalBalance + transactionBalance;
+      setBalance(currentBalance);
+      
+      // Animar el contador de balance
       Animated.timing(balanceCountAnim, {
-        toValue: 3775,
+        toValue: currentBalance,
         duration: 1500,
         useNativeDriver: false,
-      }),
-      Animated.timing(chartDrawAnim, {
-        toValue: 1,
-        duration: 2000,
-        useNativeDriver: false,
-      }),
-    ]).start();
-  }, []);
+      }).start();
+      
+      // Obtener datos del mes actual
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      
+      // Obtener resumen de categorías
+      const categoryReport = await transactionService.getCategoryReport(currentMonth, currentYear);
+      if (categoryReport) {
+        setMonthlyData(categoryReport.balance_total);
+        
+        // Preparar datos para la gráfica de dona
+        const topCategories = await transactionService.getTopCategories('gasto', {
+          mes: currentMonth,
+          ano: currentYear,
+          limite: 4
+        });
+        
+        const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'];
+        const formattedCategories = topCategories.map((cat, index) => ({
+          name: cat.categoria,
+          value: cat.total,
+          color: colors[index],
+          percentage: cat.porcentaje
+        }));
+        
+        setCategoryData(formattedCategories);
+      }
+      
+    } catch (error) {
+      console.error('Error cargando datos del dashboard:', error);
+      Alert.alert('Error', 'No se pudieron cargar los datos');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
-  // Datos de ejemplo para la grafica
-  const expenseData = [
-    { date: 'Nov 23', amount: 1800 },
-    { date: '24', amount: 2200 },
-    { date: '25', amount: 2800 },
-    { date: '26', amount: 3200 },
-    { date: '27', amount: 4500 },
-    { date: '28', amount: 5800 },
-    { date: '29', amount: 7200 },
-    { date: '30', amount: 9500 }
-  ];
+  const calculateTransactionBalance = async (transactions) => {
+    let balance = 0;
+    for (const transaction of transactions) {
+      if (transaction.categoria?.tipo === 'ingreso') {
+        balance += transaction.monto;
+      } else {
+        balance -= transaction.monto;
+      }
+    }
+    return balance;
+  };
 
-  const categoryData = [
-    { name: 'Alimentación', value: 2500, color: '#FF6B6B', percentage: 38 },
-    { name: 'Transporte', value: 1800, color: '#4ECDC4', percentage: 27 },
-    { name: 'Entretenimiento', value: 1200, color: '#45B7D1', percentage: 18 },
-    { name: 'Servicios', value: 1075, color: '#96CEB4', percentage: 17 }
-  ];
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadDashboardData();
+  };
+
+  // Datos para la gráfica de línea (últimos 7 días)
+  const getExpenseData = () => {
+    const data = [];
+    const now = new Date();
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      
+      const dayTransactions = transactions.filter(t => {
+        const tDate = new Date(t.fecha);
+        return tDate.toDateString() === date.toDateString() && 
+               t.categoria?.tipo === 'gasto';
+      });
+      
+      const dayTotal = dayTransactions.reduce((sum, t) => sum + t.monto, 0);
+      
+      data.push({
+        date: date.getDate().toString(),
+        amount: dayTotal
+      });
+    }
+    
+    return data;
+  };
 
   // Componente para gráfica de línea simple con animación
   const LineChart = ({ data, height = 120 }) => {
     const chartWidth = width - 80;
-    const maxValue = Math.max(...data.map(d => d.amount));
-    const minValue = Math.min(...data.map(d => d.amount));
-    const range = maxValue - minValue || 1;
+    const maxValue = Math.max(...data.map(d => d.amount), 1);
+    const minValue = 0;
+    const range = maxValue || 1;
 
     const points = data.map((item, index) => {
       const x = (index / (data.length - 1)) * chartWidth;
@@ -131,7 +232,7 @@ const Dashboard = ({ navigation }) => {
                 }
               ]}
             >
-              {item.date.length > 3 ? item.date.slice(-2) : item.date}
+              {item.date}
             </Animated.Text>
           ))}
         </View>
@@ -214,11 +315,9 @@ const Dashboard = ({ navigation }) => {
         }),
       ]).start();
 
-      // Mostrar menú solo para el segundo ícono (stats-chart)
       if (index === 1) {
         setShowTransactionMenu(true);
       } else if (index === 3) {
-        // Navegar a PerfilUsuario cuando se presiona el ícono de person (índice 3)
         navigation.navigate('PerfilUsuario');
       } else {
         onPress();
@@ -242,11 +341,33 @@ const Dashboard = ({ navigation }) => {
     );
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+          <Text style={styles.loadingText}>Cargando tus datos...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const expenseData = getExpenseData();
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#000']}
+          />
+        }
+      >
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerTop}>
@@ -258,7 +379,7 @@ const Dashboard = ({ navigation }) => {
             </View>
           </View>
 
-          <Text style={styles.greeting}>Hola, Fernando</Text>
+          <Text style={styles.greeting}>Hola, {userData?.nombre?.split(' ')[0] || 'Usuario'}</Text>
 
           {/* Saldo en cuenta */}
           <Animated.View
@@ -275,7 +396,7 @@ const Dashboard = ({ navigation }) => {
           >
             <Text style={styles.balanceLabel}>Saldo en cuenta</Text>
             <Animated.Text style={styles.balanceAmount}>
-              ${Math.floor(balanceCountAnim._value).toLocaleString()}
+              ${balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Animated.Text>
             <Animated.View
               style={[
@@ -283,7 +404,9 @@ const Dashboard = ({ navigation }) => {
                 { opacity: fadeAnim }
               ]}
             >
-              <Text style={styles.trendText}>+20% al mes pasado</Text>
+              <Text style={styles.trendText}>
+                {monthlyData?.diferencia > 0 ? '+' : ''}{((monthlyData?.diferencia / balance) * 100).toFixed(1)}% al mes pasado
+              </Text>
             </Animated.View>
           </Animated.View>
 
@@ -304,9 +427,11 @@ const Dashboard = ({ navigation }) => {
               ]}
             >
               <Text style={styles.statLabel}>Ingresos</Text>
-              <Text style={styles.statAmount}>10,353</Text>
+              <Text style={styles.statAmount}>
+                {monthlyData?.total_ingresos?.toLocaleString('es-MX', { minimumFractionDigits: 0 }) || '0'}
+              </Text>
               <View style={styles.trendContainer}>
-                <Text style={styles.trendTextRed}>-8% al mes pasado</Text>
+                <Text style={styles.trendTextGreen}>Este mes</Text>
               </View>
             </Animated.View>
 
@@ -317,9 +442,11 @@ const Dashboard = ({ navigation }) => {
               ]}
             >
               <Text style={styles.statLabel}>Gastos</Text>
-              <Text style={styles.statAmount}>6,575</Text>
+              <Text style={styles.statAmount}>
+                {monthlyData?.total_gastos?.toLocaleString('es-MX', { minimumFractionDigits: 0 }) || '0'}
+              </Text>
               <View style={styles.trendContainer}>
-                <Text style={styles.trendTextRed}>-8% al mes pasado</Text>
+                <Text style={styles.trendTextRed}>Este mes</Text>
               </View>
             </Animated.View>
           </Animated.View>
@@ -335,62 +462,59 @@ const Dashboard = ({ navigation }) => {
             }
           ]}
         >
-          <Text style={styles.chartTitle}>Gráfica de gastos</Text>
+          <Text style={styles.chartTitle}>Gastos últimos 7 días</Text>
           <LineChart data={expenseData} />
-          <View style={styles.yAxisLabels}>
-            <Text style={styles.yAxisLabel}>$10K</Text>
-            <Text style={styles.yAxisLabel}>$8K</Text>
-            <Text style={styles.yAxisLabel}>$6K</Text>
-            <Text style={styles.yAxisLabel}>$4K</Text>
-            <Text style={styles.yAxisLabel}>$2K</Text>
-          </View>
         </Animated.View>
 
         {/* Gráfica por categorías */}
-        <Animated.View
-          style={[
-            styles.chartContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateX: slideAnim }],
-            }
-          ]}
-        >
-          <Text style={styles.chartTitle}>Gastos por categoría</Text>
-          <View style={styles.donutContainer}>
-            <DonutChart data={categoryData} />
-            <Animated.View
-              style={[
-                styles.legend,
-                { opacity: fadeAnim }
-              ]}
-            >
-              {categoryData.map((item, index) => (
-                <Animated.View
-                  key={index}
-                  style={[
-                    styles.legendItem,
-                    {
-                      opacity: fadeAnim,
-                      transform: [
-                        {
-                          translateX: slideAnim.interpolate({
-                            inputRange: [0, 50],
-                            outputRange: [0, 20],
-                          })
-                        }
-                      ],
-                    }
-                  ]}
-                >
-                  <View style={[styles.legendColor, { backgroundColor: item.color }]} />
-                  <Text style={styles.legendText}>{item.name}</Text>
-                  <Text style={styles.legendValue}>${item.value.toLocaleString()}</Text>
-                </Animated.View>
-              ))}
-            </Animated.View>
-          </View>
-        </Animated.View>
+        {categoryData.length > 0 && (
+          <Animated.View
+            style={[
+              styles.chartContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateX: slideAnim }],
+              }
+            ]}
+          >
+            <Text style={styles.chartTitle}>Gastos por categoría</Text>
+            <View style={styles.donutContainer}>
+              <DonutChart data={categoryData} />
+              <Animated.View
+                style={[
+                  styles.legend,
+                  { opacity: fadeAnim }
+                ]}
+              >
+                {categoryData.map((item, index) => (
+                  <Animated.View
+                    key={index}
+                    style={[
+                      styles.legendItem,
+                      {
+                        opacity: fadeAnim,
+                        transform: [
+                          {
+                            translateX: slideAnim.interpolate({
+                              inputRange: [0, 50],
+                              outputRange: [0, 20],
+                            })
+                          }
+                        ],
+                      }
+                    ]}
+                  >
+                    <View style={[styles.legendColor, { backgroundColor: item.color }]} />
+                    <Text style={styles.legendText}>{item.name}</Text>
+                    <Text style={styles.legendValue}>
+                      ${item.value.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                    </Text>
+                  </Animated.View>
+                ))}
+              </Animated.View>
+            </View>
+          </Animated.View>
+        )}
 
         {/* Alertas importantes */}
         <Animated.View
@@ -403,7 +527,7 @@ const Dashboard = ({ navigation }) => {
           ]}
         >
           <View style={styles.alertsHeader}>
-            <Text style={styles.alertsTitle}>ALERTA IMPORTANTE</Text>
+            <Text style={styles.alertsTitle}>INFORMACIÓN</Text>
             <Text style={styles.alertsArrow}>›</Text>
           </View>
 
@@ -415,10 +539,10 @@ const Dashboard = ({ navigation }) => {
                 { transform: [{ scale: scaleAnim }] }
               ]}
             >
-              <Text style={styles.alertIcon}>🏠</Text>
-              <Text style={styles.alertDescription}>Próximo pago</Text>
-              <Text style={styles.alertTitle}>RENTA</Text>
-              <Text style={styles.alertAmount}>$4,500</Text>
+              <Text style={styles.alertIcon}>📊</Text>
+              <Text style={styles.alertDescription}>Transacciones del mes</Text>
+              <Text style={styles.alertTitle}>MOVIMIENTOS</Text>
+              <Text style={styles.alertAmount}>{transactions.length}</Text>
             </Animated.View>
 
             <Animated.View
@@ -429,9 +553,14 @@ const Dashboard = ({ navigation }) => {
               ]}
             >
               <Text style={styles.alertIcon}>💰</Text>
-              <Text style={styles.alertDescription}>Bajo presupuesto</Text>
-              <Text style={styles.alertTitle}>SALDO DISPONIBLE</Text>
-              <Text style={styles.alertAmount}>$3,775</Text>
+              <Text style={styles.alertDescription}>Balance del mes</Text>
+              <Text style={styles.alertTitle}>DIFERENCIA</Text>
+              <Text style={[
+                styles.alertAmount,
+                { color: monthlyData?.diferencia >= 0 ? '#10B981' : '#EF4444' }
+              ]}>
+                ${monthlyData?.diferencia?.toLocaleString('es-MX', { minimumFractionDigits: 0 }) || '0'}
+              </Text>
             </Animated.View>
           </View>
         </Animated.View>
@@ -479,6 +608,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
   },
   header: {
     backgroundColor: '#fff',
@@ -558,6 +697,10 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   trendText: {
+    fontSize: 12,
+    color: '#10B981',
+  },
+  trendTextGreen: {
     fontSize: 12,
     color: '#10B981',
   },

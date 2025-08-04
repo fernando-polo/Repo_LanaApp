@@ -1,6 +1,8 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+
+// Importar todas las pantallas
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import RecuperarPassword from './screens/RecuperarPassword';
@@ -9,7 +11,6 @@ import NuevaTransaccion from './screens/NuevaTransaccion';
 import DetalleTransaccion from './screens/DetalleTransaccion';
 import HistorialTransacciones from './screens/HistorialTransacciones';
 import PerfilUsuario from './screens/PerfilUsuario';
-
 
 const Stack = createStackNavigator();
 

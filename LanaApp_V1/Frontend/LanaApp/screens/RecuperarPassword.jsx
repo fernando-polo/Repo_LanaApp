@@ -9,12 +9,13 @@ import {
   StatusBar,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+import { authService } from '../utils/auth';
 
 const RecuperarPassword = ({ navigation }) => {
   const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handlePasswordReset = async () => {
     if (!email || !email.includes('@')) {
@@ -22,13 +23,36 @@ const RecuperarPassword = ({ navigation }) => {
       return;
     }
 
+    setLoading(true);
+
     try {
-      await sendPasswordResetEmail(auth, email);
-      Alert.alert('Correo enviado', 'Revisa tu bandeja para restablecer tu contraseña.');
-      navigation.goBack();
+      const response = await authService.forgotPassword(email);
+      console.log('Respuesta recuperación:', response);
+      
+      Alert.alert(
+        'Correo enviado', 
+        response.message || 'Si el email existe, se enviaron instrucciones para restablecer tu contraseña.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack()
+          }
+        ]
+      );
     } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'No se pudo enviar el correo. Verifica que el email esté registrado.');
+      console.error('Error al recuperar contraseña:', error);
+      
+      let errorMessage = 'No se pudo enviar el correo de recuperación';
+      
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.request) {
+        errorMessage = 'No se pudo conectar con el servidor';
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -61,13 +85,22 @@ const RecuperarPassword = ({ navigation }) => {
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            editable={!loading}
           />
 
-          <TouchableOpacity style={styles.resetButton} onPress={handlePasswordReset}>
-            <Text style={styles.resetButtonText}>ENVIAR CORREO</Text>
+          <TouchableOpacity 
+            style={[styles.resetButton, loading && styles.resetButtonDisabled]} 
+            onPress={handlePasswordReset}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.resetButtonText}>ENVIAR CORREO</Text>
+            )}
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={handleBackToLogin}>
+          <TouchableOpacity onPress={handleBackToLogin} disabled={loading}>
             <Text style={styles.backToLogin}>Volver al inicio de sesión</Text>
           </TouchableOpacity>
         </View>
@@ -77,17 +110,59 @@ const RecuperarPassword = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  scrollContent: { flexGrow: 1 },
-  content: { flex: 1, paddingHorizontal: 32, paddingTop: 40 },
-  logoContainer: { alignItems: 'center', marginBottom: 40 },
-  logoCircles: { flexDirection: 'row', marginBottom: 16 },
-  circle: { width: 50, height: 50, borderRadius: 25, marginHorizontal: -6 },
-  circle1: { backgroundColor: '#ffa500', zIndex: 1 },
-  circle2: { backgroundColor: '#ff8c00', marginLeft: -12 },
-  appName: { fontSize: 20, fontWeight: '700', color: '#333', letterSpacing: 2 },
-  title: { fontSize: 26, fontWeight: '600', color: '#333', textAlign: 'center', marginBottom: 8 },
-  subtitle: { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 32 },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f8f9fa' 
+  },
+  scrollContent: { 
+    flexGrow: 1 
+  },
+  content: { 
+    flex: 1, 
+    paddingHorizontal: 32, 
+    paddingTop: 40 
+  },
+  logoContainer: { 
+    alignItems: 'center', 
+    marginBottom: 40 
+  },
+  logoCircles: { 
+    flexDirection: 'row', 
+    marginBottom: 16 
+  },
+  circle: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    marginHorizontal: -6 
+  },
+  circle1: { 
+    backgroundColor: '#ffa500', 
+    zIndex: 1 
+  },
+  circle2: { 
+    backgroundColor: '#ff8c00', 
+    marginLeft: -12 
+  },
+  appName: { 
+    fontSize: 20, 
+    fontWeight: '700', 
+    color: '#333', 
+    letterSpacing: 2 
+  },
+  title: { 
+    fontSize: 26, 
+    fontWeight: '600', 
+    color: '#333', 
+    textAlign: 'center', 
+    marginBottom: 8 
+  },
+  subtitle: { 
+    fontSize: 16, 
+    color: '#666', 
+    textAlign: 'center', 
+    marginBottom: 32 
+  },
   input: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -104,6 +179,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 24,
+  },
+  resetButtonDisabled: {
+    backgroundColor: '#666',
   },
   resetButtonText: {
     color: '#fff',
