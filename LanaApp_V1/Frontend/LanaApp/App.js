@@ -14,6 +14,8 @@ import PerfilUsuario from './screens/PerfilUsuario';
 import GestionCuentas from './screens/GestionCuentas';
 import GestionCategorias from './screens/GestionCategorias';
 import GestionPresupuestos from './screens/GestionPresupuestos';
+import GestionPagosProgramados from './screens/GestionPagosProgramados';
+import GestionNotificaciones from './screens/GestionNotificaciones';
 
 const Stack = createStackNavigator();
 
@@ -38,6 +40,8 @@ const App = () => {
         <Stack.Screen name="GestionCuentas" component={GestionCuentas} />
         <Stack.Screen name="GestionCategorias" component={GestionCategorias} />
         <Stack.Screen name="GestionPresupuestos" component={GestionPresupuestos} />
+        <Stack.Screen name="GestionPagosProgramados" component={GestionPagosProgramados} />
+        <Stack.Screen name="GestionNotificaciones" component={GestionNotificaciones} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -448,11 +448,13 @@ const Dashboard = ({ navigation }) => {
 
       if (index === 1) {
         setShowTransactionMenu(true);
+      } else if (index === 2) {
+        navigation.navigate('GestionNotificaciones');  // <-- AGREGAR ESTA LÍNEA
       } else if (index === 3) {
         navigation.navigate('PerfilUsuario');
       } else {
         onPress();
-      }
+        }
     };
 
     return (

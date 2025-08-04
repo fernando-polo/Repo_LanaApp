@@ -256,7 +256,7 @@ const PerfilUsuario = ({ navigation }) => {
 
           <TouchableOpacity 
             style={styles.menuItem}
-            onPress={() => Alert.alert('Información', 'Pagos programados próximamente')}
+            onPress={() => navigation.navigate('GestionPagosProgramados')}
           >
             <View style={styles.menuItemLeft}>
               <Ionicons name="calendar" size={24} color="#333" />
