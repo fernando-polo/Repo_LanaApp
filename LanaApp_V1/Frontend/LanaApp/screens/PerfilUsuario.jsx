@@ -372,19 +372,35 @@ const PerfilUsuario = ({ navigation }) => {
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.tabButton} onPress={() => navigation.navigate('Dashboard')}>
+        <TouchableOpacity 
+          style={styles.tabButton} 
+          onPress={() => navigation.navigate('Dashboard')}
+        >
           <Ionicons name="home" size={24} color="#999" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabButton}>
+        
+        <TouchableOpacity 
+          style={styles.tabButton}
+          onPress={() => navigation.navigate('HistorialTransacciones')}
+        >
           <Ionicons name="stats-chart" size={24} color="#999" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabButton}>
+        
+        <TouchableOpacity 
+          style={styles.tabButton}
+          onPress={() => navigation.navigate('GestionNotificaciones')}
+        >
           <Ionicons name="notifications" size={24} color="#999" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
+        
+        <TouchableOpacity 
+          style={[styles.tabButton, styles.activeTab]}
+          onPress={() => {}} // Ya estamos en esta pantalla
+        >
           <Ionicons name="person" size={24} color="#000" />
         </TouchableOpacity>
       </View>
+            
     </SafeAreaView>
   );
 };

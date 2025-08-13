@@ -41,6 +41,7 @@ const NuevaTransaccion = ({ navigation }) => {
   
   // Datos de la API
   const [accounts, setAccounts] = useState([]);
+  const [accountBalances, setAccountBalances] = useState({}); // NUEVO: Para guardar saldos reales
   const [categories, setCategories] = useState([]);
   const [filteredCategories, setFilteredCategories] = useState([]);
 
@@ -67,6 +68,9 @@ const NuevaTransaccion = ({ navigation }) => {
       const accountsData = await accountService.getAccounts();
       setAccounts(accountsData);
       
+      // Calcular saldos reales de las cuentas
+      await calculateAccountBalances(accountsData);
+      
       // Seleccionar primera cuenta por defecto
       if (accountsData.length > 0) {
         setSelectedAccount(accountsData[0]);
@@ -81,6 +85,41 @@ const NuevaTransaccion = ({ navigation }) => {
       Alert.alert('Error', 'No se pudieron cargar los datos necesarios');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // NUEVA FUNCIÓN: Calcular saldos reales de las cuentas
+  const calculateAccountBalances = async (accountsList) => {
+    try {
+      // Obtener todas las transacciones
+      const allTransactions = await transactionService.getTransactions({ limit: 1000 });
+      
+      const balances = {};
+      
+      // Calcular saldo para cada cuenta
+      for (const account of accountsList) {
+        // Saldo inicial de la cuenta
+        let accountBalance = account.saldo_inicial || 0;
+        
+        // Filtrar transacciones de esta cuenta
+        const accountTransactions = allTransactions.filter(t => t.cuenta_id === account.id);
+        
+        // Calcular el balance de transacciones
+        accountTransactions.forEach(transaction => {
+          if (transaction.categoria?.tipo === 'ingreso') {
+            accountBalance += parseFloat(transaction.monto) || 0;
+          } else if (transaction.categoria?.tipo === 'gasto') {
+            accountBalance -= parseFloat(transaction.monto) || 0;
+          }
+        });
+        
+        balances[account.id] = accountBalance;
+      }
+      
+      setAccountBalances(balances);
+      
+    } catch (error) {
+      console.error('Error calculando saldos:', error);
     }
   };
 
@@ -152,20 +191,32 @@ const NuevaTransaccion = ({ navigation }) => {
     }
   };
 
-  const renderAccountItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.modalItem}
-      onPress={() => {
-        setSelectedAccount(item);
-        setShowAccountModal(false);
-      }}
-    >
-      <Text style={styles.modalItemText}>{item.nombre}</Text>
-      <Text style={styles.modalItemSubtext}>
-        Saldo: ${item.saldo_inicial?.toLocaleString('es-MX')}
-      </Text>
-    </TouchableOpacity>
-  );
+  // ACTUALIZADO: Mostrar saldo real en lugar del inicial
+  const renderAccountItem = ({ item }) => {
+    const currentBalance = accountBalances[item.id] || 0;
+    const isNegative = currentBalance < 0;
+    
+    return (
+      <TouchableOpacity
+        style={styles.modalItem}
+        onPress={() => {
+          setSelectedAccount(item);
+          setShowAccountModal(false);
+        }}
+      >
+        <Text style={styles.modalItemText}>{item.nombre}</Text>
+        <Text style={[
+          styles.modalItemSubtext,
+          isNegative && styles.negativeBalance
+        ]}>
+          Saldo: ${currentBalance.toLocaleString('es-MX', { 
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2 
+          })}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   const renderCategoryItem = ({ item }) => (
     <TouchableOpacity
@@ -279,7 +330,7 @@ const NuevaTransaccion = ({ navigation }) => {
           </View>
         </View>
         
-        {/* Selector de cuenta */}
+        {/* Selector de cuenta - ACTUALIZADO para mostrar saldo real */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Cuenta</Text>
           <TouchableOpacity
@@ -287,12 +338,25 @@ const NuevaTransaccion = ({ navigation }) => {
             onPress={() => setShowAccountModal(true)}
             disabled={saving}
           >
-            <Text style={[
-              styles.selectorText,
-              !selectedAccount && styles.placeholderText
-            ]}>
-              {selectedAccount ? selectedAccount.nombre : 'Selecciona una cuenta'}
-            </Text>
+            <View style={styles.selectorContent}>
+              <Text style={[
+                styles.selectorText,
+                !selectedAccount && styles.placeholderText
+              ]}>
+                {selectedAccount ? selectedAccount.nombre : 'Selecciona una cuenta'}
+              </Text>
+              {selectedAccount && (
+                <Text style={[
+                  styles.selectorBalance,
+                  accountBalances[selectedAccount.id] < 0 && styles.negativeBalance
+                ]}>
+                  Saldo: ${(accountBalances[selectedAccount.id] || 0).toLocaleString('es-MX', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
+                </Text>
+              )}
+            </View>
             <Ionicons name="chevron-down" size={20} color="#666" />
           </TouchableOpacity>
         </View>
@@ -574,11 +638,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 16,
-    height: 56,
+    minHeight: 56,
+  },
+  selectorContent: {
+    flex: 1,
+    marginRight: 8,
   },
   selectorText: {
     fontSize: 16,
     color: '#333',
+  },
+  selectorBalance: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  negativeBalance: {
+    color: '#EF4444',
   },
   placeholderText: {
     color: '#999',

@@ -2,7 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Cambia esta URL por la de tu servidor
-const API_URL = 'http://127.0.0.1:8000'; // Usa tu IP local para desarrollo
+const API_URL = 'https://lana-api-rm8u.onrender.com'; // Usa tu IP local para desarrollo
 
 // Crear instancia de axios
 const api = axios.create({
